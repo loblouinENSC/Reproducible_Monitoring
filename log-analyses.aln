@@ -1,0 +1,108 @@
+# log analyses
+# allen -q '/^EMeter_/>=20'
+
+def sensor_failure[T](s) =
+  s >= T | ~s >= T
+
+def outing_period[T](no_activity) =
+  holds(no_activity,
+        between(dn("ContactS_E"), up("ContactS_E")) > T)
+
+def platform_failure[T](no_activity) =
+  no_activity > T & ~outing_period[T](no_activity)
+
+def platform_failure_1day(no_activity) =
+  platform_failure[24hr](no_activity)
+
+def sleep_segment(any_motion_up) =
+  holds(~any_motion_up,
+          ("MotionD_B" >= 30min) <= 10hr | (~"MotionD_B" >= 30min) <= 10hr)
+
+def sleep_segment_ext(no_presence, night) =
+    ((until(no_presence & night, "MotionD_B") | since(no_presence & night, "MotionD_B"))
+     >= 30min) <= 10hr
+
+let any_emeter_up =
+  any_up("EMeter_Cofeemaker", "EMeter_L" )
+in let any_contact_sw =
+  any_sw("ContactS_Cupboard", "ContactS_E", "ContactS_Fridge")
+in let any_motion_up_but_bed =
+  any_up("MotionD_B", "MotionD_E", "MotionD_K", "MotionD_L", "MotionD_S", "MotionD_T")
+in let any_motion_up =
+  any_motion_up_but_bed | up("MotionD_B")
+in let any_activity =
+  any_motion_up | any_emeter_up | any_contact_sw
+in let no_activity =
+  ~any_activity
+in let any_motion =
+  any("MotionD_B", "MotionD_E", "MotionD_K", "MotionD_L", "MotionD_S", "MotionD_T")
+in let any_presence =
+  any_motion | any_emeter_up | any_contact_sw
+in let no_presence =
+  ~any_presence
+in let outing_period_10min = outing_period[10min](no_activity)
+in
+let night = slot_2017[22hr, 8hr] | slot_2018[22hr, 8hr]
+in
+let sleep_segment = sleep_segment(any_motion_up_but_bed) in
+let sleep =
+  (
+   ex(night, sleep_segment | during(~sleep_segment <= 15min, night)))
+in
+let quiet_night_segment = ((ex(night, no_activity) & ~sleep_segment) >= 30min) <=10hr 
+in 
+let quiet_sleep_segment = sleep_segment | quiet_night_segment
+in
+let sleep_quiet =
+  (
+   ex(night, quiet_sleep_segment | during(~quiet_sleep_segment <= 15min, night)))
+in
+
+door_failure_1week:
+  let nodoor = sensor_failure[168hr]("ContactS_E") in
+  nodoor;
+  #holds(~outing_period[168hr](no_activity), nodoor);
+
+#door_failure:
+#  "ContactS_E.CommFailure";
+
+#failure_M_E_1day:
+#  sensor_failure[24hr]("MotionD_E")
+
+platform_failure_1day:
+  platform_failure_1day(no_activity);
+
+
+#outing_1day:
+#  outing_period[24hr]
+
+outing:
+  outing_period_10min;
+
+toilet:
+  "MotionD_T" <= 20min | holds(~any_motion_up, ~"MotionD_T" <= 3min);
+  
+
+toilet_failure:
+  let nout = ~outing_period_10min in
+  (~"MotionD_T" & nout) >= 24hr | ("MotionD_T" & nout) >= 24hr;
+
+#toilet_failure:
+  #”MotionD_T.CommFailure";
+
+bed_failure:
+  let nout = ~outing_period_10min in
+  (~"MotionD_B" & nout) >= 24hr | ("MotionD_B" & nout) >= 24hr;
+
+sleep:
+  sleep;
+
+
+quiet_night_segment:
+ quiet_night_segment;
+
+sleep_quiet:
+  sleep_quiet
+
+
+

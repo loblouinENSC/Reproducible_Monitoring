@@ -1,0 +1,1196 @@
+#!/usr/bin/perl -w
+# Copyright 2018,2019 Inria. This file is part of Allen.
+#
+# Allen is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Allen is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with Allen.  If not, see <https://www.gnu.org/licenses/>.
+
+#
+# The Allen virtual machine, implemented as a deeply embedded DSL interpreter.
+#
+
+my $usage = 'usage: allen [options] contexts
+where:
+* contexts is a Perl module containing a list of compiled contexts. This file
+  is usually produced by the Allen compiler starting from an ".aln" file.
+* standard input must be in CSV format with at least three columns:
+  timestamp;sensor;value[;...]
+  where timestamp is either an integer counting the milliseconds since the Epoch
+  or a standard timestamp string: yyyy-mm-ddThh:mm:ss[.mmm][Z]
+  The value of each input signal at t=0 is 0.
+  NB: input lines in the log have to be ordered by timestamps.
+* the output signals are produced in the same three-columns format on standard
+  output
+  The value of each output signal at t=0 is 0, unless printed otherwise.
+  The values of output signals may be 0, 1, or \'?\' (unknown). However, unknown
+  values are only printed at the end of the log, when they become permanent.
+  NB: output lines are not necessarily ordered by timestamps.
+* options may be the following ones:
+  -d \'regex\': CSV delimiter is given by the regex (default: \';\')
+  -E: Epoch timestamps are in seconds (default: milliseconds)
+  -q \'/regex/>=val,...\': threshold-quantify matching numeric sensors as boolean
+  -b: \'/regex/=val1/val0\': define symbolic binary values for matching sensors
+  -s log: detect contexts in sequence on file log, not in parallel on stdin
+  -r nm: execute only context named nm
+  -l lib: load operator library lib
+  -f N: forget obsolete events every N seconds (0=never, default=24hr)
+  -i: print input events before processing them
+  -T: output integer timestamps (default: string timestamps)
+  -Z: output Zulu (aka UTC or GMT) string timestamps (default: local timestamps)
+  -t: print trace of events & timeouts
+  -D: dump final & intermediate streams
+  -S: print statistics at the end
+  -g: print debug info';
+
+use Getopt::Std;
+our %opts = ();
+my $forgot; # counter of forgot events
+my $tforgot; # memorize the time up to which we forgot the events
+
+getopts('d:Eq:b:s:r:l:f:iTZtDSg', \%opts) or die $usage;
+
+my $delim = defined($opts{'d'})? $opts{'d'}: '\s*;\s*';
+
+die "f option must be a number N >= 0"
+  if defined($opts{'f'}) && ($opts{'f'} !~ /^\d+$/ || $opts{'f'} < 0);
+$opts{'f'} = 24*3600 if (!defined($opts{'f'}));
+
+my %threshold = ();
+if (defined($opts{'q'})) {
+  for my $cond (split /\s*,\s*/, $opts{'q'}) {
+    #print STDERR "parsing condition: $cond\n";
+    my ($regex, $val) = ($cond =~ q|/([^/]*)/\s*>=\s*([-?\d.]*(?:[eE]-?\d+)?)|);
+    die "found not /regex/>=val in -q option: $cond"
+      if !defined($regex) || !defined($val);
+    $threshold{$regex} = $val;
+    print STDERR "quant: /$regex/ >= '$val'\n";
+  }
+}
+my %symbool = ();
+if (defined($opts{'b'})) {
+  for my $range (split /\s*,\s*/, $opts{'b'}) {
+    my ($regex, $val1, $val0) = ($range =~ q|/([^/]*)/\s*=\s*(\w+)/(\w+)|);
+    die "found not /regex/=val1/val0 in -b option: $range"
+      if !defined($regex) || !defined($val1) || !defined($val0);
+    $symbool{$regex} = [lc($val0), lc($val1)];
+    print STDERR "symbool: /$regex/ = $val0/$val1\n";
+  }
+}
+
+use FindBin;
+#use lib $FindBin::Bin;
+use Time::Local;
+use Time::HiRes qw(time);
+use POSIX qw(strftime);
+my $npacks = 0; # number of processed event packs
+my $totaltime = 0; # record the starting time
+my $maxtime = 0; # maximum time for handling an event
+my $mintime;  # minimum time for handling an event
+
+my %in = ();
+
+# ---------------------- Main program --------------------------------
+
+die $usage if @ARGV != 1;
+my $fname = shift @ARGV;
+if (defined($opts{'s'})) {
+  my $log = $opts{'s'};
+  open(IN, "<$log") or die "error: cannot open log file \"$log\"\n";
+} else {
+  open(IN, "<-");
+}
+do "$FindBin::Bin/shared.pm"
+  or die "error: could not load shared lib: $FindBin::Bin/shared.pm";
+&load("$FindBin::Bin/builtins.pm");
+&load("$FindBin::Bin/stdlib.pm");
+if(defined($opts{'l'})) {
+  &load($opts{'l'});
+}
+my ($uses, $defs, $rules) = &load($fname); # get list of name/form pairs
+my %rules = (@$rules);
+my %names = (); # name of each form (inverse of %rules)
+my @rules = (); # rule names in order
+my @forms = (); # forms in order
+for(my $i=0; $i<$#$rules; $i+=2) {
+  my $n = $rules->[$i];
+  my $f = $rules->[$i + 1];
+  die "rule name expected, found $n" if ref $n ne "";
+  die "duplicated rule name: $n" if exists($rules{'$n'});
+  die "$f named both $names{$f} and $n" if exists($names{$f});
+  # $f may be a string (sensor name) or an ARRAY (operator application)
+  # die "rule form expected, found $f" if ref $f ne "ARRAY";
+  $names{$f} = $n;
+  push @rules, $n;
+  push @forms, $f;
+  #print STDERR "rule\[$i\]:$n=$f\n";
+}
+if(defined($opts{'s'})) { # compute rules in sequence
+  for (my $i=0; $i<=$#rules; $i++) {
+    my $n = $rules[$i];
+    my $f = $forms[$i];
+    warn "form $n ($i/$#rules)\n";
+    print "# form $n ($i/$#rules)\n";
+    %names = ($f => $n); # restrict output form names to current form
+    &interpret([$f]);
+    seek IN, 0, 0;
+  }
+} elsif(defined($opts{'r'})) { # compute only one rule
+  my $n = $opts{'r'};
+  die "no rule $n" if !exists($rules{$n});
+  my $f = $rules{$n};
+  %names = ($f => $n); # restrict output form names to current form
+  &interpret([$f]);
+} else { # execute all named rules
+  &interpret(\@forms);
+}
+exit;
+
+# ------------------------------------------------------
+
+sub print_forms() {
+  my @forms = @_;
+  return "(" . (join ",\n", (map {&print_form($_)} @forms)) . ")";
+}
+
+sub print_form() {
+  my ($form) = @_;
+  if(ref $form eq "ARRAY") {
+    my @trees = @$form[1 .. $#$form];
+    return "[" . (join ",", $$form[0], (map {&print_form($_)} @trees)) . "]";
+  } elsif(ref $form eq "") { # leaf
+    return "$form";
+  } else {
+    die "invalid form $form";
+  }
+}
+
+sub domain() {
+  my @forms = @_;
+  my %h = (map {&domain_h($_)} @forms);
+  return keys %h;
+}
+
+# returns the domain of a form as a set (i.e. a hash : string->1)
+sub domain_h() {
+  my ($form) = @_;
+  if(ref $form eq "ARRAY") {
+    my @trees = @$form[1 .. $#$form];
+    return map {&domain_h($_)} @trees;
+  } elsif(ref $form eq "") { # leaf
+    if($form !~ /^\d+$/) { # sensor
+      return ($form => 1);
+    } else { # shared subtree
+      return ();
+    }
+  } else {
+    die "invalid form";
+  }
+}
+
+sub codomain() {
+  my @forms = @_;
+  my %h=();
+  my $n=0;
+  return map {&codomain_rec($_, \%h, \$n)} @forms;
+}
+
+sub codomain_rec() {
+  my ($form, $h, $n) = @_;
+  if(ref $form eq "ARRAY") {
+    if(defined($h->{$form})) { # shared subtree
+      return ();
+    }
+    my @trees = @$form[1 .. $#$form];
+    my @res = ((map {&codomain_rec($_, $h, $n)} @trees), ($h->{$form} = $$n++));
+    return @res;
+  } elsif(ref $form eq "") { # leaf
+    return ();
+  } else {
+    die "invalid form";
+  }
+}
+
+sub forms2exprs() {
+  my ($forms, $out, $outform) = @_;
+  my %h=();
+  my $n=0;
+  %$outform = ();
+  return (map {&form2expr_rec($_, $out, \%h, \$n, $outform)} @$forms);
+}
+
+sub form2expr_rec() {
+  my ($form, $out, $h, $n, $outform) = @_;
+  if(ref $form eq "ARRAY") {
+    if(defined($h->{$form})) { # shared subtree
+      return [$$out[$h->{$form}]];
+    }
+    my @trees = @$form[1 .. $#$form];
+    my $res = [$$form[0], (map {&form2expr_rec($_, $out, $h, $n, $outform)} @trees), ($h->{$form} = $$n++)];
+    $outform->{$out->[$h->{$form}]} = $form;
+    return $res;
+  } elsif(ref $form eq "") { # leaf
+    return [$in{$form}];
+  } else {
+    die "invalid form";
+  }
+}
+
+sub link() {
+  my ($exprs, $out, $outix) = @_;
+  my %h=();
+  %$outix = ();
+  return map {&link_rec($_, $out, \%h, $outix)} @$exprs;
+}
+
+# Return a list of out stream computations: [op [outs-arg...] outs-res],
+# in standard postorder (left to right).
+# Also fill outix with indices of out-streams.
+sub link_rec() {
+  my ($expr, $out, $h, $outix) = @_;
+  if(ref $expr eq "ARRAY") {
+    if($#$expr > 0) {
+      if(defined($h->{$expr})) { # shared subtree
+        return ();
+      }
+      my @trees = @$expr[1 .. $#$expr - 1];
+      my @res = (map {&link_rec($_, $out, $h, $outix)} @trees); # glue lists from args
+      # add the current node's computation
+      my $ix = $$expr[$#$expr];
+      my $comp = [$$expr[0], (map {$#$_>0? $out->[$$_[$#$_]]: $$_[0]} @trees), ($h->{$expr} = $out->[$ix])];
+      $outix->{$out->[$ix]} = $ix;
+      print STDERR "comp: [$$expr[0]," . (join ",", (map {$#$_>0? "\$out->[$$_[$#$_]]": defined($outix->{$$_[0]})? "\$out->[$outix->{$$_[0]}]": "in:$$_[0]"} @trees)) . ",\$out->[$ix]]\n"
+        if defined($opts{'g'});
+      return (@res, $comp);
+    } else { # leaf (in stream)
+      return ();
+    }
+  } else {
+    die "invalid expr: $expr";
+  }
+}
+
+# inverse linking: compute list of parents in expr (in/out-stream => out-stream)
+sub ilink() {
+  my ($exprs, $out) = @_;
+  my %h=();
+  my @irel = map {&ilink_rec($_, $out, \%h)} @$exprs;
+  return &rel2hash(@irel);
+}
+
+# return a hash of node=>[parent...]
+sub ilink_rec() {
+  my ($expr, $out, $h) = @_;
+  if(ref $expr eq "ARRAY") {
+    if($#$expr > 0) {
+      if(defined($h->{$expr})) { # shared subtree
+        return ();
+      }
+      my @trees = @$expr[1 .. $#$expr - 1];
+      my @res = (map {&ilink_rec($_, $out, $h)} @trees); # glue lists from args
+      # add reverse pointers to the current node
+      my $ix = $$expr[$#$expr];
+      #my @pub = (map {($#$_>0? $out->[$$_[$#$_]]: $$_[0] => $out->[$ix])} @trees);
+      my @pub = (map {($#$_>0? $out->[$$_[$#$_]]: $$_[0] => $out->[$ix])} @trees);
+      $h->{$expr} = 1;
+      #print STDERR "pub: " . (join ",", (map {($#$_>0? "\$out->[$$_[$#$_]]": "in:$$_[0]" => "\$out->[$ix]")} @trees)) . "\n";
+      return (@res, @pub);
+    } else { # leaf (in stream)
+      return ();
+    }
+  } else {
+    die "invalid expr: $expr";
+  }
+}
+
+sub rel2hash() {
+  my (@rel) = @_;
+  die "invalid relation" if ($#rel + 1) % 2 != 0;
+  my %res = ();
+  for(my $i = 0; $i < $#rel; $i += 2) {
+    my $a = $rel[$i];
+    my $b = $rel[$i + 1];
+    if(!exists($res{$a})) {
+      $res{$a} = [];
+    }
+    push @{$res{$a}}, $b;
+  }
+  return %res;
+}
+
+sub print_exprs() {
+  my @exprs = @_;
+  return "(" . (join ",\n", (map {&print_expr($_)} @exprs)) . ")";
+}
+
+sub print_expr() {
+  my ($expr) = @_;
+  if(ref $expr eq "ARRAY") {
+    if($#$expr > 0) {
+      my @trees = @$expr[1 .. $#$expr - 1];
+      return "[" . (join ",", $$expr[0], (map {&print_expr($_)} @trees), $$expr[$#$expr]) . "]";
+    } else {
+      return print_array_array_array($expr);
+    }
+  } else {
+    die "invalid expr: $expr";
+  }
+}
+
+my %outform; # map output streams to the corresponding forms (when applicable)
+
+sub interpret() {
+  my ($forms) = @_;
+  if (defined($opts{'g'})) {
+    print STDERR "forms: " . &print_forms(@$forms) . "\n";
+    print STDERR "domain: ";
+    print STDERR join ",", &domain(@$forms);
+    print STDERR "\n";
+    print STDERR "codomain: ";
+    print STDERR join ",", &codomain(@$forms);
+    print STDERR "\n";
+  }
+  %in = ();
+  for my $s (&domain(@$forms)) {
+    $in{$s} = [[0,0]];
+  }
+  my @out = ();
+  for my $i (&codomain(@$forms)) {
+    $out[$i] = [];
+  }
+  %outform = ();
+  my @exprs = &forms2exprs($forms, \@out, \%outform);
+  if (defined($opts{'g'})) {
+    print STDERR "exprs: ";
+    print STDERR &print_exprs(@exprs);
+    print STDERR "\n";
+  }
+  my %outix; # map out streams back to their index in @out
+  my @lexprs = &link(\@exprs, \@out, \%outix);
+  my %iexpr = &ilink(\@exprs, \@out);
+  if (defined($opts{'g'})) {
+    print STDERR "iexpr: ";
+    for my $k (sort {$outix{$a} <=> $outix{$b}} keys %iexpr) {
+      my $knm = &stream_name($k, \%outix);
+      print STDERR "$knm=>[" . (join ",", (map {&stream_name($_, \%outix)} @{$iexpr{$k}})) . "] ";
+    };
+    print STDERR "\n";
+  }
+  my %h = (map {&domain_h($_)} @$forms);
+  &csp(\@lexprs, \%iexpr, \%h, \@out, \%outix);
+  # print output streams which remain '?'
+  for my $str (@out) {
+    if (exists($names{$outform{$str}})) {
+      my $topval = $str->[$#$str][1];
+      if (!defined($topval)) {
+        my $topts = $str->[$#$str][0];
+        &export_stream_line($topts, $names{$outform{$str}}, '?', undef);
+      }
+    }
+  }
+  if(defined($opts{'D'})) {
+    print "streams:\n" . &print_streams(\@out) . "\n";
+  }
+}
+
+sub stream_name {
+  my ($str, $outix) = @_;
+  if(defined($outix->{$str})) {
+    return "\$out->[$outix->{$str}]";
+  } else {
+    return "in:$str";
+  }
+}
+
+my %timer; # map stream to list of increasing timeouts
+my $now;
+my $last; # last value of "now"
+my %timeout_now; # set of streams having timeout now (precomputed for tick())
+my %update; # time of last update to each stream
+my %lastoutval; # last value of each exported output stream
+my %lastoutts; # last time each exported output stream changed
+
+sub csp() {
+  my ($lexprs, $iexpr, $base, $out, $outix) = @_;
+  my %lastval = (); # last value of each sensor
+  my %lastts = (); # last timestamp of each sensor value
+  my @pack = ();
+
+  %timer = ();
+  $last = undef;
+  $now = 0;
+  $forgot = 0;
+  $tforgot = 0;
+  %timeout_now = ();
+  %update = ();
+  %lastoutval = ($out->[$#$out] => 0);
+  %lastoutts = ($out->[$#$out] => 0);
+  for my $expr (@$lexprs) { # tick everything
+    &tick($expr);
+  }
+
+  my ($val, $s, $ts) = &next_event($base);
+  if(defined($val)) {
+    die "illegal negative timestamp for event <$ts,$s,$val>" if $ts < 0;
+    push @pack, [$val, $s, $ts];
+    while(1) {
+      my ($val, $s, $ts) = &next_event($base);
+      last if !defined($val);
+      die "anachronic event <$ts,$s,$val> at time $now, log must be sorted"
+        if $ts < $now;
+      next if defined($lastval{$s}) && $val == $lastval{$s}; # skip repeated values
+      if ($ts != $pack[$#pack]->[2]) { # pack is ready
+        my $tspack = $pack[$#pack]->[2];
+        &process_pack($lexprs, $iexpr, \@pack, $tspack, $out, $outix);
+        @pack = ();
+        &forget($out) if $opts{'f'} != 0;
+      } else {
+        print STDERR "simultaneous events\n" if (defined($opts{'g'}));
+      }
+      push @pack, [$val, $s, $ts];
+      $lastval{$s} = $val;
+      $lastts{$s} = $ts;
+    }
+    my $tspack = $pack[$#pack]->[2];
+    &process_pack($lexprs, $iexpr, \@pack, $tspack, $out, $outix);
+  }
+  # process remaining timers
+  &process_timers($lexprs, $iexpr, undef, $out, $outix);
+  if (defined($opts{'S'})) {
+    print STDERR "forgot $forgot events\n" ;
+    printf STDERR sprintf("processed $npacks event packs in %.03f msec",
+                          $totaltime*1000);
+    print STDERR sprintf(" (avg=%.03f min=%.03f max=%.03f)\n",
+                         $totaltime*1000/$npacks, $mintime*1000, $maxtime*1000);
+  }
+}
+
+sub update() {
+  my ($str, $t, $val) = @_;
+  push @{$str}, [$t, $val];
+  $update{$str} = $now;
+  if (exists($names{$outform{$str}})) {
+    if (defined($val) && $val != ($lastoutval{$str} || 0)) {
+      &export_stream_line($t, $names{$outform{$str}}, $val, $lastoutts{$str});
+      $lastoutval{$str} = $val;
+      $lastoutts{$str} = $t;
+    }
+  }
+}
+
+sub next_event() {
+  my ($base) = @_;
+  while(<IN>) {
+    next if /^\s*#/ || /^\s*$/; # skip comment lines and black lines
+    chomp;
+    s/\r$//; # eventually convert from that old CP/M format...
+    my ($ts, $s, $val) = &parse_event($_);
+    next if !exists($base->{$s}); # skip irrelevant values
+    # quantify values of numeric sensors:
+    while (my ($regex, $thr) = each %threshold) {
+      if ($s =~ /$regex/) {
+        if ($val >= $thr) { $val = 1; }
+        else { $val = 0; }
+      }
+    }
+    # encode symbolic binary values:
+    while (my ($regex, $vals) = each %symbool) {
+      if ($s =~ /$regex/) {
+        if (lc($val) eq $vals->[0]) { $val = 0; }
+        elsif (lc($val) eq $vals->[1]) { $val = 1; }
+        else { die "undeclared symbolic binary value $val for sensor $s"; }
+      }
+    }
+    if($val ne "1" && $val ne "0") {
+      print STDERR "skipping non-bool value ($val, $s, $ts)\n";
+      next;
+    }
+    return ($val, $s, $ts);
+  }
+  return undef; # EOF
+}
+
+# process all timers up to $tspack (if defined)
+sub process_timers() {
+  my ($lexprs, $iexpr, $tspack, $out, $outix) = @_;
+  my $tout;
+  while(defined($tout = &next_timeout($now)) &&
+        (!defined($tspack) || $tout < $tspack)) {
+    $last = $now;
+    $now = $tout;
+    print STDERR "timeout $now\n" if defined($opts{'t'});
+    %timeout_now = (&timeouts_set($now));
+    my @todo_strs = (keys %timeout_now);
+    my %todo_ixs = (map {($outix->{$_} => 1)} @todo_strs);
+    &tick_set($lexprs, $iexpr, \%todo_ixs, $out, $outix);
+  }
+  return $tout;
+}
+
+sub process_pack() {
+  my ($lexprs, $iexpr, $ref_pack, $tspack, $out, $outix) = @_;
+  my $t0 = time;
+  my $tout = &process_timers($lexprs, $iexpr, $tspack, $out, $outix);
+
+  # process the pack {
+  $last = $now;
+  $now = $tspack;
+  print STDERR "event(s) $now:" if defined($opts{'t'});
+  my @inputs = ();
+  for my $event (@$ref_pack) {
+    my ($val1, $s1, $ts1) = @$event;
+    $in{$s1} = [] if !exists($in{$s1});
+    push @{$in{$s1}}, [$now, $val1];
+    $update{$in{$s1}} = $now;
+    push @inputs, $in{$s1};
+    print STDERR " $s1" if defined($opts{'t'});
+    # print input event if required
+    if (defined($opts{'i'})) {
+      &export_stream_line($ts1, "in:$s1", $val1);
+    }
+    # print input event if it is a context
+    if (exists($names{$s1}) && $val1 != ($lastoutval{$names{$s1}} || 0)) {
+      &export_stream_line($ts1, $names{$s1}, $val1);
+      $lastoutval{$names{$s1}} = $val1;
+      $lastoutts{$names{$s1}} = $ts1;
+    }
+  }
+  if(defined($opts{'t'})) {
+    if(defined($tout) && $tout == $now) {
+      print STDERR " + timeout(s)";
+    }
+    print STDERR "\n";
+    #&print_timers();
+  }
+  %timeout_now = (&timeouts_set($now));
+  my @todo_strs = ((map {my $x=$iexpr->{$_}; defined($x)?@{$x}:()} @inputs), (keys %timeout_now));
+  my %todo_ixs = (map {($outix->{$_} => 1)} @todo_strs);
+  &tick_set($lexprs, $iexpr, \%todo_ixs, $out, $outix);
+  # } process the pack
+
+  if (defined($opts{'S'})) {
+    my $delta = time - $t0;
+    $totaltime += $delta;
+    $npacks++;
+    if ($delta > $maxtime) { $maxtime = $delta; }
+    if (!defined($mintime) || $delta < $mintime) { $mintime = $delta; }
+  }
+}
+
+sub parse_event() {
+  my ($line) = @_;
+  my ($ts, $s, $val) = split /$delim/o, $line;
+  die "parse error:\n$_" if !defined($ts) ||!defined($s) || !defined($val);
+  # unquote fields if needed
+  for my $f ($ts, $s, $val) {
+    if ($f =~ /^'(.*)'$/ || $f =~ /^"(.*)"$/) {
+      $f =~ s/^.(.*).$/$1/;
+    }
+  }
+  if ($ts =~ /^\d+$/) { # integer timestamp => scale if not in millisecs
+    $ts *= 1000 if defined($opts{'E'});
+  } else { # timestamp not a mere integer => interpret as a date
+    my ($year, $month, $day, $hh, $mm, $ss, $ms, $mus, $tz) =
+      ($ts =~ /^(\d\d\d\d)-?(\d\d)-?(\d\d)[ T](\d\d):?(\d\d):?(\d\d)(?:[.,](\d\d\d)(\d\d\d)?)?(Z)?$/);
+    die "invalid date-timestamp: $ts" if !defined($ss);
+    $ms = 0 if !defined($ms);
+    # TODO: take microseconds into account (simply dropped for now)
+    if (defined($tz)) {
+      $ts = timegm($ss, $mm, $hh, $day, $month - 1, $year) * 1000 + $ms;
+    } else {
+      $ts = timelocal($ss, $mm, $hh, $day, $month - 1, $year) * 1000 + $ms;
+    }
+  }
+  return ($ts, $s, $val) ;
+}
+
+sub forget() {
+  my ($out) = @_;
+  #my @outs = grep {defined($_)} @$out;
+  # min current time of all out streams
+  my $tforget = &min(map {&lastseen($_)} @$out);
+  return if $tforget - $tforgot < $opts{'f'} * 1000; # no use to redo
+  #print STDERR "forgetting up to $tforget\n";
+  # print STDERR "t=" . localtime($now / 1000). ": forget up to " . localtime($tforget / 1000) . "\n"
+  #   if $opts{'f'};
+  # forget out streams but last = the result
+  for(my $i = 0; $i < $#$out; $i++) {
+    #print STDERR "forget out[$i] up to $tforget\n";
+    &forget_stream($$out[$i], $tforget);
+  }
+  # forget in streams
+  for my $k (keys %in) {
+    #print STDERR "forget in $k up to $tforget\n";
+    &forget_stream($in{$k}, $tforget);
+  }
+  $tforgot = $tforget;
+}
+
+sub forget_stream() {
+  my ($s, $t) = @_;
+  my $val = &val($s, $t);
+  die "undefined val for $s when lastseen at $t" if !defined($val);
+  my $notval = $val == 1? 0: 1;
+  my $oldest = &prev_val($t, $s, $notval);
+  return if !defined($oldest);
+  #print STDERR "forget stream $s up to $oldest\n";
+  for(my $i = 0; $$s[$i][0] < $oldest; $i++) {
+    shift @$s;
+    $forgot++;
+  }
+}
+
+# computes the minimum between N numbers (not counting undefs)
+sub min() {
+  my @x = @_;
+  my $min;
+  for $i (@x) {
+    $min = $i if defined($i) && (!defined($min) || $i < $min);
+  }
+  return $min;
+}
+
+# set timeout at t for stream s
+sub set_timeout() {
+  my ($t, $s) = @_;
+  if(!exists $timer{$s}) {
+    $timer{$s} = [$t];
+  } else {
+    die "non-monotonic set_timer NYI"
+      if $#{$timer{$s}} >= 0 &&
+        $t < $timer{$s}[$#{$timer{$s}}];
+    push @{$timer{$s}}, $t
+      unless $#{$timer{$s}} >= 0 &&
+        $t == $timer{$s}[$#{$timer{$s}}];
+  }
+}
+
+# Get the streams among the given streams
+# (or in all streams if none specified) having a timeout at t
+sub timeouts() {
+  my ($t, @streams) = @_;
+  @streams = (keys %timer) if @streams == 0;
+  my @res = ();
+  for my $s (@streams) {
+    next if !exists($timer{$s});
+    for(my $i = $#{$timer{$s}}; $i >= 0 && $timer{$s}[$i] >= $t; $i--) {
+      push @res, $s if $timer{$s}[$i] == $t;
+    }
+  }
+  return @res;
+}
+
+# Like timeouts() but returns a set (i.e. a hash)
+sub timeouts_set() {
+  my ($t, @streams) = @_;
+  my @a = &timeouts($t, @streams);
+  my %h = ();
+  for my $s (@a) {
+    $h{$s} = 1;
+  }
+  return %h;
+}
+
+# Cancel timeout at t for the given stream
+sub cancel_timeout() {
+  my ($t, $s) = @_;
+  return if !exists $timer{$s};
+  for(my $i = $#{$timer{$s}}; $i >= 0 && $timer{$s}[$i] >= $t; $i--) {
+    splice @{$timer{$s}}, $i, 1 if $timer{$s}[$i] == $t;
+  }
+}
+
+# Check if one of the given streams
+# (or in all streams if none specified) have a timeout at t
+sub timeout() {
+  my ($t, @streams) = @_;
+  my @res = &timeouts($t, @streams);
+  return (@res > 0);
+}
+
+# Get the first timeout greater than t in the given streams
+# (or in all streams if none specified)
+sub next_timeout() {
+  my ($t, @streams) = @_;
+  @streams = (keys %timer) if @streams == 0;
+  my $t1; # will contain the min of all timeouts > t
+  for my $s (@streams) {
+    next if !exists($timer{$s});
+    for(my $i = $#{$timer{$s}}; $i >= 0 && $timer{$s}[$i] > $t; $i--) {
+      $t1 = $timer{$s}[$i] if !defined($t1) || $timer{$s}->[$i] < $t1;
+    }
+  }
+  return $t1;
+}
+
+# evaluate expr starting from out-indices on the todo list, along backlinks in iexpr
+sub tick_set {
+  my ($ref_exprs, $iexpr, $todo, $out, $outix) = @_;
+  while(keys %$todo > 0) {
+    my $ix = &min(keys %$todo);
+    delete $todo->{$ix};
+    my $str = $out->[$ix];
+    print STDERR "tick out[$ix]=$str, node=[$ref_exprs->[$ix][0],$ref_exprs->[$ix][1]]\n" if $opts{'t'};
+    my $top0 = $#$str;
+    &tick($ref_exprs->[$ix]);
+    my $top1 = $#$str;
+    if($top1 > $top0) {
+      #print STDERR "propagate to: ";
+      for my $s (@{$iexpr->{$str}}) {
+        #print STDERR "$outix->{$s}, ";
+        $todo->{$outix->{$s}} = 1;
+      }
+    }
+  }
+}
+
+sub tick {
+  my ($ref_expr) = @_;
+  my $n = $#$ref_expr; # node arity
+  if($n == 1) {
+    my ($op0, $outs) = @$ref_expr;
+    &loop0($op0, $last, $outs);
+  } elsif($n == 2) {
+    my ($op1, $r, $outs) = @$ref_expr;
+    &loop1($op1, $last, $r, $outs);
+  } elsif ($n == 3) { # op2
+    my ($op2, $r, $s, $outs) = @$ref_expr;
+    &loop2($op2, $last, $r, $s, $outs);
+  } elsif($n == 0) { # leaf
+    die "tick(leaf)";
+  } else {
+    die "tick: invalid expr[$#$ref_expr] = [$$ref_expr[0], ...]"
+  }
+}
+
+sub print_array_f() {
+  my ($ref_x, $f, $beg, $glu, $end) = @_;
+  return $beg . (join "$glu", map {&$f($_)} @{$ref_x}) . $end;
+}
+
+sub print_array() {
+  my ($ref_x) = @_;
+  return &print_array_f($ref_x, sub(){my ($x)=@_; return !defined($x)? "undef": $x;}, "[", ",", "]");
+}
+
+sub print_array_array() {
+  my ($ref_x) = @_;
+  return &print_array_f($ref_x, \&print_array, "[", ",", "]");
+}
+
+sub print_array_array_array() {
+  my ($ref_x) = @_;
+  return &print_array_f($ref_x, \&print_array_array, "[", ",\n", "]");
+}
+
+sub print_stream() {
+  my ($ref_p) = @_;
+  return &print_array_array($ref_p);
+}
+
+sub print_streams() {
+  my ($ref_l) = @_;
+  return &print_array_array_array($ref_l);
+}
+
+sub ux_ts() {
+  my ($ts) = @_;
+  my $ms = $ts % 1000;
+  if (defined($opts{'Z'})) {
+    my $uts = strftime("%Y-%m-%dT%H:%M:%S", gmtime($ts / 1000));
+    return sprintf "%s.%03dZ", $uts, $ms;
+  } else {
+    my $uts = strftime("%Y-%m-%dT%H:%M:%S", localtime($ts / 1000));
+    return sprintf "%s.%03d", $uts, $ms;
+  }
+}
+
+sub export_stream_line() {
+  my ($ts, $name, $val, $lastoutts) = @_;
+  use integer;
+  if (defined($opts{'T'})) {
+    print "$ts;$name;" . $val . ";";# . localtime($ts / 1000) . ";";
+  } else {
+    print &ux_ts($ts) . ";$name;" . $val . ";";
+  }
+  if($val eq "0" && defined($lastoutts)) {
+    print (($ts - $lastoutts) / 1000);
+  }
+  print "\n";
+}
+
+sub eq_array_f() {
+  my ($ref_x, $ref_y, $eq, $pr) = @_;
+  if ($#$ref_x != $#$ref_y) {
+    print STDERR "diff len: " . &$pr($ref_x) .
+        "\nvs      : " . &$pr($ref_y) . "\n";
+    return 0;
+  }
+  for (my $i = 0; $i <= $#$ref_x; $i++) {
+    if (not &$eq($$ref_x[$i], $$ref_y[$i])) {
+      print STDERR "diff elms: " . &$pr($ref_x) .
+          "\nvs       : " . &$pr($ref_y) . "\n";
+      return 0;
+    }
+  }
+  return 1;
+}
+
+sub eq_array_num() {
+  my ($ref_x, $ref_y) = @_;
+  return &eq_array_f($ref_x, $ref_y, sub(){my ($x,$y)=@_; return &sameval($x, $y);}, \&print_array);
+}
+
+sub eq_array_array_num() {
+  my ($ref_x, $ref_y) = @_;
+  return &eq_array_f($ref_x, $ref_y, \&eq_array_num, \&print_array_array);
+}
+
+sub eq_array_array_array_num() {
+  my ($ref_x, $ref_y) = @_;
+  return &eq_array_f($ref_x, $ref_y, \&eq_array_array_num, \&print_array_array_array);
+}
+
+sub print_timers() {
+  print STDERR "timers: ";
+  for my $k (keys %timer) {
+    print STDERR "$k=>[" . (join ",", @{$timer{$k}}) . "] ";
+  }
+  print STDERR "\n";
+}
+
+sub sameval() {
+  my ($x, $y) = @_;
+  if(defined($x) && !defined($y) || !defined($x) && defined($y)) {
+    return 0;
+  } elsif(!defined($x) && !defined($y)) {
+    return 1;
+  } else {
+    return $x == $y;
+  }
+}
+
+# last value of p at time < t
+# NB: p is supposed to be defined at least on [0,t).
+sub lastval() {
+  my ($ref_p, $t) = @_;
+  my $i = &lastval_ix($ref_p, $t);
+  die "assert(lastval($ref_p,$t))" if !defined($$ref_p[$i][1]);
+  return $$ref_p[$i][1];
+}
+
+# current value of p at time t
+sub val() {
+  my ($ref_p, $t) = @_;
+  my $i = &val_ix($ref_p, $t);
+  return $$ref_p[$i][1];
+}
+
+sub tsval() { # current value of p at time t, timestamped
+    my ($ref_p, $t) = @_;
+    my $i = &val_ix($ref_p, $t);
+    return $$ref_p[$i];
+}
+
+sub val_ix() { # index of current value of p at time t in stream p
+  my ($ref_p, $t) = @_;
+  my $i = $#$ref_p;
+  while($i >= 0) {
+    if($$ref_p[$i][0] <= $t) {
+      return $i;
+    }
+    $i--;
+  }
+  die "val_ix: invalid time";
+}
+
+sub lastval_ix() { # index of current value of p at time < t in stream p
+  my ($ref_p, $t) = @_;
+  my $i = $#$ref_p;
+  while($i >= 0) {
+    if($$ref_p[$i][0] < $t) {
+      return $i;
+    }
+    $i--;
+  }
+  return undef;
+}
+
+# last time when the value of stream p is known
+sub lastseen() {
+  my ($ref_p) = @_;
+  die "topless stream" if $#$ref_p < 0;
+  my $resval = $$ref_p[$#$ref_p][1];
+  my $t;
+  if(defined($resval)) {
+    #$t = $$ref_p[$#$ref_p][0];
+    return $now;
+  } elsif ($#$ref_p == 0) {
+    #die "botomless stream" if $#$ref_p - 1 < 0;
+    return 0;
+  } else {
+    $resval = $$ref_p[$#$ref_p - 1][1];
+    die "two top values of $ref_p are undef" if !defined($resval);
+    $t = $$ref_p[$#$ref_p - 1][0];
+  }
+  return $t;
+}
+
+# given a time t, get the time t'>t of the first subsequent event in the given
+# argument streams or a timeout in the given result stream
+sub next() {
+  my ($t, $res, @streams) = @_;
+  my $t1;
+  for my $s (@streams) {
+    my $i = &val_ix($s, $t);
+    # advance index and check if still in the streams
+    $i++;
+    if($i <= $#$s && (!defined($t1) || $$s[$i][0] < $t1)) {
+      $t1 = $$s[$i][0];
+    }
+  }
+  my $tout = &next_timeout($t, $res);
+  if (defined($tout) && $tout > $now) { $tout = undef; }
+  return &min($t1, $tout);
+}
+
+# given a time t, get the time t'>t of the first subsequent event p=val
+sub next_val() {
+  my ($t, $ref_p, $val) = @_;
+  my $pi = &val_ix($ref_p, $t);
+  # search for val in the stream from index on
+  while(++$pi <= $#$ref_p) {
+    if(&sameval($$ref_p[$pi][1], $val)) {
+      return $$ref_p[$pi][0];
+    }
+  }
+  return undef;
+}
+
+# given a time t, get the time t'<=t of the latest earlier event p=val
+sub prev_val() {
+  my ($t, $ref_p, $val) = @_;
+  my $pi = &val_ix($ref_p, $t);
+  # search for val in the stream from index on
+  while($pi >= 0) {
+    if(&sameval($$ref_p[$pi][1], $val)) {
+      return $$ref_p[$pi][0];
+    }
+    $pi--;
+  }
+  return undef;
+}
+
+# given a time t when p(t)=val, get the time t'<=t when p=>val (val = 0|1)
+sub became_ts() {
+  my ($t, $ref_p, $val) = @_;
+  die "became_ts: val must be defined" if !defined($val);
+  die "became_ts: current val is not $val" if &val($ref_p, $t) != $val;
+  my $notval = $val == 1? 0: 1;
+  my $t1 = &prev_val($t, $ref_p, $notval);
+  if (!defined($t1)) {
+    return 0;
+  }
+  return &next_val($t1, $ref_p, $val);
+}
+
+# given p=>? at time t, return the last time t' < t when p ceased to be $val
+# where val = 0|1
+sub lastseen_as() {
+  my ($t, $ref_p, $val) = @_;
+  die "lastseen_as: val must be defined" if !defined($val);
+  die "lastseen_as: current val is not undef" if defined(&val($ref_p, $t));
+  # if p was $val before p=>?, return the moment when p=>?
+  my $tsvalp = &tsval($ref_p, $t)->[0]; # time when p=>?
+  my $lastvalixp = &lastval_ix($ref_p, $tsvalp);
+  if (!defined($lastvalixp)) {
+    return undef;
+  } else {
+    die "found two consecutive undef values"
+      if !defined($$ref_p[$lastvalixp][1]);
+    if ($$ref_p[$lastvalixp][1] == $val) { # p was $val before p=>?
+      return $tsvalp;
+    } else { # p was !$val before p=>?
+      # conceptually, would call became_ts as follows:
+      # &became_ts($$ref_p[$lastvalixp][0], $ref_p, $$ref_p[$lastvalixp][1]);
+      # ...but must return undef if there was no $val before. So do like this:
+      my $t1 = &prev_val($$ref_p[$lastvalixp][0], $ref_p, $val);
+      if (!defined($t1)) {
+	return undef;
+      }
+      return &next_val($t1, $ref_p, $$ref_p[$lastvalixp][1]);
+    }
+  }
+}
+
+# TODO: factorize functions loopN()
+
+# For a nullary operator op0, process as many as possible known events
+# (at time now), starting from the last knonwn result: either computed
+# successfully at time last, or computed unsucessfully beyond top of stream.
+sub loop0() {
+  my ($op0, $last, $ref_res) = @_;
+  if($#$ref_res < 0) { # initially
+    my $val0 = &$op0(0, $ref_res, undef);
+    #die "loop0: initial value of $op0(p) is ?"
+    #  if !defined($val0);
+    &update($ref_res, 0, $val0);
+  } else {
+    my $resval = $$ref_res[$#$ref_res][1];
+    my $t;
+    if(defined($resval)) {
+      $t = &next($last, $ref_res);
+      #print STDERR "loop0($op0): compute from [$last, $resval] to $t\n" if defined($t);
+    } else {
+      if ($#$ref_res == 0) {
+	$t = 0;
+	$resval = undef;
+      } else {
+	$resval = $$ref_res[$#$ref_res - 1][1];
+	die "two top values of $op0 are undef" if !defined($resval);
+	$t = $$ref_res[$#$ref_res][0];
+	#print STDERR "loop0($op0): recompute from [$$ref_res[$#$ref_res - 1][0], $resval] to $t\n";
+      }
+    }
+    while(defined($t)) {
+      my $val = &$op0($t, $ref_res, $resval);
+      print STDERR "loop0: &$op0($t)=$val\n" if $opts{'t'};
+      if(!&sameval($$ref_res[$#$ref_res][1], $val)) {
+        &update($ref_res, $t, $val);
+      }
+      last if !defined($val);
+      $resval = $val;
+      $t = &next($t, $ref_res);
+    }
+  }
+}
+
+# For a unary operator op1, process as many as possible known events
+# (at time now), starting from the last knonwn result: either computed
+# successfully at time last, or computed unsucessfully beyond top of stream.
+sub loop1() {
+  my ($op1, $last, $ref_p, $ref_res) = @_;
+  if($#$ref_res < 0) { # initially
+    #die "loop1: initial value of p is ?"
+    #  if !defined($$ref_p[0][1]);
+    my $val0 = &$op1(0, $ref_p, $ref_res, undef);
+    #die "loop1: initial value of $op1(p) is ?"
+    #  if !defined($val0);
+    print STDERR "loop1: &$op1(0)=$val0\n" if $opts{'t'};
+    &update($ref_res, 0, $val0);
+  } else {
+    my $resval = $$ref_res[$#$ref_res][1];
+    my $t;
+    if(defined($resval)) {
+      $t = &next($last, $ref_res, $ref_p);
+      #print STDERR "loop1($op1): compute from [$last, $resval] to $t\n" if defined($t);
+    } else {
+      if ($#$ref_res == 0) {
+	$t = 0;
+	$resval = undef;
+      } else {
+	$resval = $$ref_res[$#$ref_res - 1][1];
+	die "two top values of $op1 are undef" if !defined($resval);
+	$t = $$ref_res[$#$ref_res][0];
+	#print STDERR "loop1($op1): recompute from [$$ref_res[$#$ref_res - 1][0], $resval] to $t\n";
+      }
+    }
+    while(defined($t)) {
+      my $val = &$op1($t, $ref_p, $ref_res, $resval);
+      print STDERR "loop1: &$op1($t)=$val\n" if $opts{'t'};
+      if(!&sameval($$ref_res[$#$ref_res][1], $val)) {
+        &update($ref_res, $t, $val);
+      }
+      last if !defined($val);
+      $resval = $val;
+      $t = &next($t, $ref_res, $ref_p);
+    }
+  }
+}
+
+# For a binary operator op2, process as many as possible known events
+# (at time now), starting from the last knonwn result: either computed
+# successfully at time last, or computed unsucessfully beyond top of stream.
+sub loop2() {
+  my ($op2, $last, $ref_p, $ref_q, $ref_res) = @_;
+  if($#$ref_res < 0) { # initially
+    #die "loop2: initial value of p or q is ?"
+    #  if !defined($$ref_p[0][1]) || !defined($$ref_q[0][1]);
+    my $val0 = &$op2(0, $ref_p, $ref_q, $ref_res, undef);
+    #die "loop2: initial value of $op2(p,q) is ?"
+    #  if !defined($val0);
+    &update($ref_res, 0, $val0);
+  } else {
+    my $resval = $$ref_res[$#$ref_res][1];
+    my $t;
+    if(defined($resval)) {
+      $t = &next($last, $ref_res, $ref_p, $ref_q);
+      print STDERR "loop2($op2): from [$last, $resval] to $t\n" if $opts{'t'} && defined($t);
+    } else {
+      if ($#$ref_res == 0) {
+	$t = 0;
+	$resval = undef;
+	print STDERR "loop2($op2): from [0, $resval] to $t\n" if $opts{'t'};
+      } else {
+	$resval = $$ref_res[$#$ref_res - 1][1];
+	die "two top values of $op2 are undef" if !defined($resval);
+	$t = $$ref_res[$#$ref_res][0];
+	print STDERR "loop2($op2): from [$$ref_res[$#$ref_res - 1][0], $resval] to $t\n" if $opts{'t'};
+      }
+    }
+    while(defined($t)) {
+      my $val = &$op2($t, $ref_p, $ref_q, $ref_res, $resval);
+      print STDERR "loop2: &$op2($t)=$val\n" if $opts{'t'};
+      if(!&sameval($$ref_res[$#$ref_res][1], $val)) {
+        &update($ref_res, $t, $val);
+      }
+      last if !defined($val);
+      $resval = $val;
+      $t = &next($t, $ref_res, $ref_p, $ref_q);
+    }
+  }
+}
+
+# True if p=>valp before or at t+T
+sub soonereq() {
+  my ($ref_p, $t, $valp, $T) = @_;
+  my $tpv = &next_val($t, $ref_p, $valp);
+  return defined($tpv) && $tpv <= $t + $T;
+}
+
+# True if p=>valp before t+T
+sub sooner() {
+  my ($ref_p, $t, $valp, $T) = @_;
+  my $tpv = &next_val($t, $ref_p, $valp);
+  return defined($tpv) && $tpv < $t + $T;
+}
+
+# True if p=>valp later than t+T
+sub later() {
+  my ($ref_p, $t, $valp, $T) = @_;
+  my $tpv = &next_val($t, $ref_p, $valp);
+  my $val_T;
+  return defined($tpv) && $tpv > $t + $T ||
+    (!defined($tpv) && $now >= $t + $T &&
+      defined($val_T = &val($ref_p, $t + $T)) && $val_T == 1);
+    # p constant until after t+T
+}
+
+# True if p=>valp later than or at t+T
+sub latereq() {
+  my ($ref_p, $t, $valp, $T) = @_;
+  my $tpv = &next_val($t, $ref_p, $valp);
+  my $val_T;
+  return defined($tpv) && $tpv >= $t + $T ||
+    (!defined($tpv) && $now >= $t + $T &&
+      defined($val_T = &val($ref_p, $t + $T)) && $val_T == 1);
+    # p constant until at least t+T
+}
