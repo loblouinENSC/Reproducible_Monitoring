@@ -2,7 +2,7 @@ SRC=Allen/src
 LOG=dataset.csv
 OPTQ=-q'/^EMeter_/>=20,/\.BatteryLevel$$/>=20'
 FAULTS=door_failure_1week bed_failure toilet_failure
-RULES=sleep_quiet toilet outing
+RULES=sleep_quiet toilet outing 
 
 %.pm: %.aln
 	$(SRC)/allenc $<
