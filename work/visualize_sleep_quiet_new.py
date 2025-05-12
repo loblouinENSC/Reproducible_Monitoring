@@ -132,7 +132,7 @@ def create_sleep_figure(daily_data, monthly_data, daily_failure_markers, scale, 
              df_daily_f = daily_failure_markers[daily_failure_markers['year_month'] == selected_month]
 
         if not df_daily_s.empty:
-            fig.add_trace(go.Bar(x=df_daily_s['date'], y=df_daily_s['duration_sum'], name="Durée sommeil (h)", marker_color='blue'))
+            fig.add_trace(go.Bar(x=df_daily_s['date'], y=df_daily_s['duration_sum'], name="Durée sommeil (h)", marker_color='green'))
             if not df_daily_f.empty:
                 fig.add_trace(go.Scatter(x=df_daily_f['date'], y=[0.1] * len(df_daily_f), name="Échec lit", mode='markers', marker=dict(color='red', size=10, symbol='x')))
             fig.update_layout(
