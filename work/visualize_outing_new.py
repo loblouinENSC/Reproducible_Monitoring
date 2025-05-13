@@ -5,7 +5,7 @@ import numpy as np
 
 # --- Configuration ---
 OUTINGS_LOG_FILE = 'rule-outing.csv'
-DOOR_FAILURE_LOG_FILE = 'days-door_failure_1week.csv' # Corrected filename if it was a typo
+DOOR_FAILURE_LOG_FILE = 'days-door_failure_1week.csv' 
 APP_TITLE = "Outings Activity Viewer"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
@@ -225,17 +225,17 @@ if __name__ == '__main__':
     app.layout = html.Div(style={'backgroundColor': BACKGROUND_COLOR, 'color': TEXT_COLOR, 'padding': '20px'}, children=[
         html.H2(APP_TITLE, style={'textAlign': 'center', 'marginBottom': '30px'}),
         html.Div([
-            html.Label("Select view scale:", style={'margin-right': '10px'}),
+            html.Label("Select view scale:", style={'marginRight': '10px'}),
             dcc.RadioItems(
                 id='scale-selector-outings',
                 options=[{'label': 'Year View (Monthly)', 'value': 'year'}, {'label': 'Month View (Daily)', 'value': 'month'}],
                 value='year',
-                labelStyle={'display': 'inline-block', 'margin-right': '20px'},
-                inputStyle={'margin-right': '5px'}
+                labelStyle={'display': 'inline-block', 'marginRight': '20px'},
+                inputStyle={'marginRight': '5px'}
             ),
         ], style={'marginBottom': '20px', 'textAlign': 'center'}),
         html.Div(id='month-dropdown-container-outings', children=[
-            html.Label("Select Month:", style={'margin-right': '10px'}),
+            html.Label("Select Month:", style={'marginRight': '10px'}),
             dcc.Dropdown(
                 id='month-dropdown-outings',
                 options=[{'label': m, 'value': m} for m in available_months],
