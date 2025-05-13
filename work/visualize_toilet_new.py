@@ -8,6 +8,11 @@ TOILET_LOG_FILE = 'rule-toilet.csv'
 APP_TITLE = "Toilet Activity Viewer"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
+DATA1_COLOR = '#36A0EB' 
+DATA2_COLOR = '#F14864'
+DATA3_COLOR = '#EB9636'
+DATAMONTH_COLOR = '#36A0EB'
+#43D37B # green
 
 # --- Data Loading and Processing Function ---
 def get_toilet_data():
@@ -55,6 +60,8 @@ def get_toilet_data():
         else:
             activity_monthly['days_in_month'] = 0
             activity_monthly['activity_count_mean_daily'] = 0
+        # Ajout du format MM/YY pour l'affichage des mois
+        activity_monthly['month_label'] = activity_monthly['date'].dt.strftime('%m/%y')
     else:
         activity_monthly = pd.DataFrame(columns=['date', 'activity_count_sum', 'duration_mean', 'duration_sem', 'days_in_month', 'activity_count_mean_daily'])
 
@@ -62,6 +69,7 @@ def get_toilet_data():
 
 # --- Figure Creation Function ---
 def create_toilet_figure(daily_data, monthly_data, scale, selected_month):
+    
     """Creates the Plotly figure for toilet activity based on inputs."""
     fig = go.Figure()
     fig.update_layout(
@@ -74,20 +82,21 @@ def create_toilet_figure(daily_data, monthly_data, scale, selected_month):
         xaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis2=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)')
+        
     )
 
     if scale == 'year':
         df = monthly_data
         if not df.empty:
-            fig.add_trace(go.Bar(x=df['date'], y=df['duration_mean'], name="Durée moyenne (s)", error_y=dict(type='data', array=df['duration_sem']), marker_color='blue'))
-            fig.add_trace(go.Scatter(x=df['date'], y=df['activity_count_sum'], name="Passages totaux", yaxis='y2', mode='lines+markers', line=dict(color='red')))
+            fig.add_trace(go.Bar(x=df['month_label'], y=df['duration_mean'], name="Durée moyenne (s)", error_y=dict(type='data', array=df['duration_sem']), marker_color=DATA1_COLOR))
+            fig.add_trace(go.Scatter(x=df['month_label'], y=df['activity_count_sum'], name="Passages totaux", yaxis='y2', mode='lines+markers', line=dict(color=DATA2_COLOR)))
             if 'activity_count_mean_daily' in df.columns:
-                fig.add_trace(go.Scatter(x=df['date'], y=df['activity_count_mean_daily'], name="Passages moyens/jour", yaxis='y2', mode='lines+markers', line=dict(color='orange')))
+                fig.add_trace(go.Scatter(x=df['month_label'], y=df['activity_count_mean_daily'], name="Passages moyens/jour", yaxis='y2', mode='lines+markers', line=dict(color=DATA3_COLOR)))
             fig.update_layout(
                 title=dict(text="Vue Annuelle : Activité mensuelle", font=dict(color=TEXT_COLOR)),
                 xaxis=dict(title=dict(text="Mois", font=dict(color=TEXT_COLOR))),
-                yaxis=dict(title=dict(text="Durée moyenne (s)", font=dict(color="blue")), tickfont=dict(color="blue")),
-                yaxis2=dict(title=dict(text="Nombre de Passages", font=dict(color="orange")), overlaying='y', side='right', tickfont=dict(color="orange")),
+                yaxis=dict(title=dict(text="Durée moyenne (s)", font=dict(color=DATA1_COLOR)), tickfont=dict(color=DATA1_COLOR)),
+                yaxis2=dict(title=dict(text="Nombre de Passages", font=dict(color=DATA3_COLOR)), overlaying='y', side='right', tickfont=dict(color=DATA3_COLOR)),
                 legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
             )
         else:
@@ -96,7 +105,7 @@ def create_toilet_figure(daily_data, monthly_data, scale, selected_month):
     elif scale == 'month' and selected_month:
         df = daily_data[daily_data['year_month'] == selected_month]
         if not df.empty:
-            fig.add_trace(go.Bar(x=df['date'], y=df['activity_count_sum'], name="Passages par jour", marker_color='green'))
+            fig.add_trace(go.Bar(x=df['date'], y=df['activity_count_sum'], name="Passages par jour", marker_color=DATAMONTH_COLOR))
             fig.update_layout(
                 title=dict(text=f"Vue Journalière : {selected_month}", font=dict(color=TEXT_COLOR)),
                 xaxis=dict(title=dict(text="Jour", font=dict(color=TEXT_COLOR))),

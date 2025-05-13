@@ -12,115 +12,190 @@ body {
 
 /* Main application container */
 #app-container {
-    width: 1000px;
+    width: 1200px;
     background-color: rgb(95, 144, 209);
     border-radius: 20px;
     padding: 3%;
-
 }
 
-#control-container {
-    width: 80%;
-    margin: auto;
-    margin-top: 5%;
-    padding: 20px 0;
-}
 
 /* Main application title */
 #app-title {
     text-align: center;
-    font-size: 2em;
-    color: #e0e0e0;
+    font-size: 2.4em;
+    color: #ffffff;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
     padding: 0;
+    margin: 0;
+    margin-bottom: 20px;
+}
+
+
+
+
+
+#control-container {
+    width: 88%;
+    height: auto;
+    margin: auto;
+    margin-top: 5%;
+    margin-bottom: 2%;
+
+    padding: 15px;
+
+    background-color: rgba(30, 30, 40, 0.8);
+    border-radius: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.selector {
+    width: 100%;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    width: auto;
     margin: 0;
 }
 
-/* Container for all controls */
-.controls-container {
-    display: flex;
-    flex-direction: row;
-    align-items: stretch;
-    /* Make control rows take full width */
-    gap: 20px;
-    /* Space between control rows */
-    margin-bottom: 50px;
-    padding: 20px;
-    border-radius: 8px;
-    width: 100%;
-
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-}
 
 /* Styling for individual control rows */
-.control-row {
-    display: flex;
-    /* Use flexbox for alignment within a row */
-    align-items: center;
-    justify-content: flex-start;
-    gap: 22px;
-    /* Space between label and control */
-    padding: 10px 0;
-    /* Padding for each control row */
-}
+.control-row {}
 
 .control-row label {
-    font-weight: 500;
+    font-weight: 600;
     color: #ffffff;
-    text-align: right;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+    font-size: 1.1em;
+    margin-right: 0;
 }
 
 /* Styling for Dash Dropdowns */
-.dash-dropdown {
+#activity-type-selector {
     width: 200px;
+
+}
+
+#month-dropdown {
+    width: 120px;
 }
 
 /* Targeting the inner parts of Dash Dropdowns for better theme consistency */
 .Select--single>.Select-control,
 .Select--multi>.Select-control {
     background-color: #2c2c2c;
-    /* Darker background for dropdown control */
-    border: 1px solid #444;
-    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+}
+
+.Select--single>.Select-control:hover,
+.Select--multi>.Select-control:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+    box-shadow: 0 0 8px rgba(120, 160, 255, 0.3);
 }
 
 .Select--single input,
 .Select--multi input {
     color: white !important;
-    /* Ensure input text is white */
+}
+
+.Select-value,
+.Select-placeholder {
+    display: flex;
+    align-items: center;
+    height: 100%;
 }
 
 .Select-value-label,
 .Select-placeholder {
     color: #e0e0e0 !important;
-
+    font-weight: 500;
+    display: flex;
+    align-items: center;
 }
 
 .VirtualizedSelectOption {
-    /* Options in the dropdown list */
     background-color: #2c2c2c;
     color: #e0e0e0;
 }
 
 .VirtualizedSelectFocusedOption {
-    /* Hovered/focused option */
     background-color: #3a3a3a;
 }
 
 /* Styling for RadioItems */
 .control-row .radio-items-container .item-label {
-    /* Target labels within RadioItems */
-    color: #cccccc;
+    color: #e0e0e0;
     padding-left: 5px;
-    /* Space between radio button and its label */
+}
+
+/* Better styling for radio buttons */
+input[type="radio"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.6);
+    border-radius: 50%;
+    margin-right: 8px;
+    position: relative;
+    top: 2px;
+}
+
+input[type="radio"]:checked {
+    border-color: #80b0ff;
+    background-color: transparent;
+    box-shadow: 0 0 5px rgba(120, 160, 255, 0.5);
+}
+
+input[type="radio"]:checked::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #80b0ff;
+}
+
+/* Specific styling for radio items */
+#scale-selector {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+#scale-selector .radio-items {
+    display: flex;
+    align-items: center;
 }
 
 /* Container for the month dropdown - dynamic display handled by callback */
-#month-dropdown-container {}
+/*#month-dropdown-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}*/
 
 /* Graph container - less width, more height */
 #activity-graph {
-
-    width: 80%;
-    height: 30%;
+    width: 90%;
+    height: 500px;
     margin: 0 auto;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }

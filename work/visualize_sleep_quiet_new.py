@@ -9,6 +9,16 @@ BED_FAILURE_FILE = 'days-bed_failure.csv'
 APP_TITLE = "Sleeping Activity Dashboard"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
+DATA1_COLOR = '#36A0EB' #bleu
+DATA2_COLOR = '#F14864' #rouge
+DATAMONTH_COLOR = '#36A0EB' 
+
+LEGEND = dict(orientation="h",yanchor="bottom",y=1.1,xanchor="left",x=0) #variable pour le placement de la légende
+MARGIN_CHART = dict(l=70, r=70, b=70, t=130, pad=3) # Add this to other chart !! #variable pour les marges du graphique
+
+TITLE_X = 0.5
+TITLE_Y = 0.95
+
 
 # --- Data Loading and Processing Function ---
 def get_sleep_data():
@@ -106,20 +116,21 @@ def create_sleep_figure(daily_data, monthly_data, daily_failure_markers, scale, 
         legend=dict(font=dict(color=TEXT_COLOR)),
         xaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
-        yaxis2=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)')
+        yaxis2=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
+        margin=dict(l=70, r=70, b=70, t=150, pad=3) # Add this to other chart !! #variable pour les marges du graphique
     )
 
     if scale == 'year':
         df = monthly_data
         if not df.empty:
-            fig.add_trace(go.Bar(x=df['date'], y=df['duration_mean'], name="Durée moyenne sommeil (h)", error_y=dict(type='data', array=df['duration_sem']), marker_color='blue'))
-            fig.add_trace(go.Scatter(x=df['date'], y=df['bed_failure_sum'], name="Jours échec lit (total)", yaxis='y2', mode='lines+markers', line=dict(color='red')))
+            fig.add_trace(go.Bar(x=df['date'], y=df['duration_mean'], name="Durée moyenne sommeil (h)", error_y=dict(type='data', array=df['duration_sem']), marker_color=DATA1_COLOR))
+            fig.add_trace(go.Scatter(x=df['date'], y=df['bed_failure_sum'], name="Jours échec lit (total)", yaxis='y2', mode='lines+markers', line=dict(color=DATA2_COLOR, dash='dot')))
             fig.update_layout(
-                title=dict(text="Vue Annuelle : Activité de Sommeil Mensuelle", font=dict(color=TEXT_COLOR)),
+                title=dict(text="Vue Annuelle : Activité de Sommeil Mensuelle", font=dict(color=TEXT_COLOR), x= TITLE_X, y = TITLE_Y),
                 xaxis=dict(title=dict(text="Mois", font=dict(color=TEXT_COLOR))),
-                yaxis=dict(title=dict(text="Durée moyenne sommeil (h)", font=dict(color='blue')), tickfont=dict(color='blue')),
-                yaxis2=dict(title=dict(text="Jours échec lit", font=dict(color='red')), overlaying='y', side='right', tickfont=dict(color='red'), showgrid=False, range=[0, df['bed_failure_sum'].max() * 1.1 if pd.notna(df['bed_failure_sum'].max()) and df['bed_failure_sum'].max() > 0 else 5]),
-                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+                yaxis=dict(title=dict(text="Durée moyenne sommeil (h)", font=dict(color=DATA1_COLOR)), tickfont=dict(color=DATA1_COLOR)),
+                yaxis2=dict(title=dict(text="Jours échec lit", font=dict(color=DATA2_COLOR)), overlaying='y', side='right', tickfont=dict(color=DATA2_COLOR), showgrid=False, range=[0, df['bed_failure_sum'].max() * 1.1 if pd.notna(df['bed_failure_sum'].max()) and df['bed_failure_sum'].max() > 0 else 5]),
+                legend=LEGEND
             )
         else:
             fig.update_layout(title=dict(text="Yearly View: No monthly data available", font=dict(color=TEXT_COLOR)))
@@ -132,13 +143,14 @@ def create_sleep_figure(daily_data, monthly_data, daily_failure_markers, scale, 
              df_daily_f = daily_failure_markers[daily_failure_markers['year_month'] == selected_month]
 
         if not df_daily_s.empty:
-            fig.add_trace(go.Bar(x=df_daily_s['date'], y=df_daily_s['duration_sum'], name="Durée sommeil (h)", marker_color='green'))
+            fig.add_trace(go.Bar(x=df_daily_s['date'], y=df_daily_s['duration_sum'], name="Durée sommeil (h)", marker_color=DATAMONTH_COLOR))
             if not df_daily_f.empty:
-                fig.add_trace(go.Scatter(x=df_daily_f['date'], y=[0.1] * len(df_daily_f), name="Échec lit", mode='markers', marker=dict(color='red', size=10, symbol='x')))
+                fig.add_trace(go.Scatter(x=df_daily_f['date'], y=[0.1] * len(df_daily_f), name="Échec lit", mode='markers', marker=dict(color=DATA2_COLOR, size=10, symbol='x')))
             fig.update_layout(
-                title=dict(text=f"Vue Journalière : {selected_month}", font=dict(color=TEXT_COLOR)),
+                title=dict(text=f"Vue Journalière : {selected_month}", font=dict(color=TEXT_COLOR), x= TITLE_X, y = TITLE_Y),
                 xaxis=dict(title=dict(text="Jour", font=dict(color=TEXT_COLOR))),
-                yaxis=dict(title=dict(text="Durée sommeil (h)", font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR))
+                yaxis=dict(title=dict(text="Durée sommeil (h)", font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR)),
+                legend=LEGEND
             )
         else:
             fig.update_layout(title=dict(text=f"Monthly View: No sleep data available for {selected_month}", font=dict(color=TEXT_COLOR)))

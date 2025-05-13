@@ -73,55 +73,60 @@ app.title = "Activity Dashboard Manager"
 
 # --- Définition du Layout de l'App ---
 app.layout = html.Div(id="app-container", children=[ 
+
     html.H2(app.title, id="app-title"),
 
     #block des controles
     html.Div(id="control-container", children=[
 
-        # Sélecteur d'Activité
-        html.Div(className='control-row', children=[
-            html.Label("Select Activity:"), 
-            dcc.Dropdown(
-                id='activity-type-selector', 
-                options=[
-                    {'label': TOILET_APP_NAME, 'value': 'toilet'},
-                    {'label': SLEEP_APP_NAME, 'value': 'sleep'},
-                    {'label': OUTINGS_APP_NAME, 'value': 'outings'}
-                ],
-                value='toilet',
-                clearable=False,
-                className='dash-dropdown' # General class for dropdowns
-            ),
-        ]),
+            # Sélecteur d'Activité
+            html.Div(className='selector', children=[
+            
+                html.Label("Activity:"), 
+                dcc.Dropdown(
+                    id='activity-type-selector', 
+                    options=[
+                        {'label': TOILET_APP_NAME, 'value': 'toilet'},
+                        {'label': SLEEP_APP_NAME, 'value': 'sleep'},
+                        {'label': OUTINGS_APP_NAME, 'value': 'outings'}
+                    ],
+                    value='toilet',
+                    clearable=False,
+                    className='dash-dropdown' # General class for dropdowns
+                ),
+            ]),
 
-        # Sélecteur d'Échelle (Année/Mois)
-        html.Div(className='control-row', children=[
-            html.Label("Select view scale:"), # Styled by .control-row label
-            dcc.RadioItems(
-                id='scale-selector',
-                options=[
-                    {'label': 'Year View (Monthly)', 'value': 'year'},
-                    {'label': 'Month View (Daily)', 'value': 'month'}
-                ],
-                value='year',
-                # labelStyle and inputStyle are often kept for dcc components
-                # as they target specific sub-elements not easily reachable by general CSS.
-                labelStyle={'display': 'inline-block', 'marginRight': '22px', 'color': TEXT_COLOR_PY}, #
-                inputStyle={'marginRight': '5px'}
-                # Removed inline style from the parent Div
-            ),
-        ]),
+            html.Div(className='selector', children=[
+            
+               html.Label("View scale:"), # Styled by .control-row label
+                dcc.RadioItems(
+                    id='scale-selector',
+                    options=[
+                        {'label': 'Year View (Monthly)', 'value': 'year'},
+                        {'label': 'Month View (Daily)', 'value': 'month'}
+                    ],
+                    value='year',
+                    # labelStyle and inputStyle are often kept for dcc components
+                    # as they target specific sub-elements not easily reachable by general CSS.
+                    labelStyle={'display': 'inline-block', 'marginRight': '22px', 'color': TEXT_COLOR_PY}, #
+                    inputStyle={'marginRight': '5px'}
+                    # Removed inline style from the parent Div
+                ),
+            ]),
+       
+            # Conteneur pour le Menu Déroulant des Mois
+            html.Div(id='month-dropdown-container', className='selector', children=[ 
 
-        # Conteneur pour le Menu Déroulant des Mois
-        html.Div(id='month-dropdown-container', className='control-row', children=[ 
-            html.Label("Select Month:"), # Styled by #month-dropdown-container label
-            dcc.Dropdown(
-                id='month-dropdown',
-                clearable=False,
-                className='dash-dropdown' # General class for dropdowns
-            )
-        ], style={'display': 'none'}), # Dynamic display style remains controlled by callback
+                html.Label(""), #Select Month: 
+                dcc.Dropdown(
+                    id='month-dropdown',
+                    clearable=False,
+                    className='dash-dropdown' # General class for dropdowns
+                )
 
+            ], style={'display': 'none'}), # Dynamic display style remains controlled by callback
+
+         
     ]),
 
     # Graphique

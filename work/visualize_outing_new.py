@@ -9,6 +9,9 @@ DOOR_FAILURE_LOG_FILE = 'days-door_failure_1week.csv'
 APP_TITLE = "Outings Activity Viewer"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
+DATA1_COLOR = '#36A0EB' #bleu
+DATA2_COLOR = '#36EB7B' #vert
+DATA3_COLOR = '#F14864' #rouge
 
 # --- Data Loading and Processing Function ---
 def get_outings_data():
@@ -133,7 +136,7 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
                 y=df['duration_min_mean'],
                 name="Durée moy. sortie (min)",
                 error_y=dict(type='data', array=df['duration_min_sem']),
-                marker_color='teal'
+                marker_color=DATA1_COLOR
             ))
             # Y2: Number of outings
             fig.add_trace(go.Scatter(
@@ -142,7 +145,7 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
                 name="Nb. sorties / mois",
                 yaxis='y2',
                 mode='lines+markers',
-                line=dict(color='coral')
+                line=dict(color=DATA2_COLOR)
             ))
             # Y2: Door failure days
             if 'door_failure_day_count' in df.columns:
@@ -152,13 +155,13 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
                     name="Jours échec porte / mois",
                     yaxis='y2',
                     mode='lines+markers',
-                    line=dict(color='lightgrey', dash='dot')
+                    line=dict(color=DATA3_COLOR, dash='dot')
                 ))
             fig.update_layout(
                 title=dict(text="Activité Sorties : Vue Annuelle (Mensuelle)", font=dict(color=TEXT_COLOR)),
                 xaxis=dict(title=dict(text="Mois", font=dict(color=TEXT_COLOR))),
-                yaxis=dict(title=dict(text="Durée moyenne sortie (min)", font=dict(color='teal')), tickfont=dict(color='teal')),
-                yaxis2=dict(title=dict(text="Nombre", font=dict(color='coral')), tickfont=dict(color='coral'), showgrid=False),
+                yaxis=dict(title=dict(text="Durée moyenne sortie (min)", font=dict(color=DATA1_COLOR)), tickfont=dict(color=DATA1_COLOR)),
+                yaxis2=dict(title=dict(text="Nombre", font=dict(color=DATA2_COLOR)), tickfont=dict(color=DATA2_COLOR), showgrid=False),
                 legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
             )
         else:
@@ -177,7 +180,7 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
                 x=df_daily_outings['date'],
                 y=df_daily_outings['activity_count_sum'],
                 name="Nb. sorties / jour",
-                marker_color='coral'
+                marker_color=DATA2_COLOR
             ))
             # Y2: Total duration of outings per day
             fig.add_trace(go.Scatter(
@@ -186,7 +189,7 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
                 name="Durée totale sorties / jour (min)",
                 yaxis='y2',
                 mode='lines',
-                line=dict(color='teal')
+                line=dict(color=DATA1_COLOR)
             ))
             # Markers for door failure days
             if not df_daily_fail_markers.empty:
@@ -195,15 +198,15 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
                     y=[0.1] * len(df_daily_fail_markers), # Position near x-axis on primary y-axis
                     name="Échec porte",
                     mode='markers',
-                    marker=dict(color='lightgrey', size=10, symbol='x'),
+                    marker=dict(color=DATA3_COLOR, size=10, symbol='x'),
                     yaxis='y1' # Explicitly assign to y1 if y2 is used for something else
                 ))
 
             fig.update_layout(
                 title=dict(text=f"Activité Sorties : Vue Journalière - {selected_month}", font=dict(color=TEXT_COLOR)),
                 xaxis=dict(title=dict(text="Jour", font=dict(color=TEXT_COLOR))),
-                yaxis=dict(title=dict(text="Nb. sorties / jour", font=dict(color='coral')), tickfont=dict(color='coral')),
-                yaxis2=dict(title=dict(text="Durée totale sorties / jour (min)", font=dict(color='teal')), tickfont=dict(color='teal'), showgrid=False),
+                yaxis=dict(title=dict(text="Nb. sorties / jour", font=dict(color=DATA2_COLOR)), tickfont=dict(color=DATA2_COLOR)),
+                yaxis2=dict(title=dict(text="Durée totale sorties / jour (min)", font=dict(color=DATA1_COLOR)), tickfont=dict(color=DATA1_COLOR), showgrid=False),
                 legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
             )
         else:
