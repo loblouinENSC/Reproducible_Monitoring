@@ -13,6 +13,13 @@ DATA1_COLOR = '#36A0EB' #bleu
 DATA2_COLOR = '#36EB7B' #vert
 DATA3_COLOR = '#F14864' #rouge
 
+#--- Graph Configuration ---
+LEGEND = dict(orientation="h",yanchor="bottom",y=1.1,xanchor="center",x=0.5)
+MARGIN_CHART = dict(l=70, r=70, b=70, t=150, pad=3) 
+
+TITLE_X = 0.06
+TITLE_Y = 0.92
+
 # --- Data Loading and Processing Function ---
 def get_outings_data():
     """Loads and preprocesses outings and door failure data."""
@@ -124,7 +131,8 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
         legend=dict(font=dict(color=TEXT_COLOR)),
         xaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
-        yaxis2=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)', overlaying='y', side='right')
+        yaxis2=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)', overlaying='y', side='right'),
+        margin=MARGIN_CHART
     )
 
     if scale == 'year':
@@ -158,11 +166,11 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
                     line=dict(color=DATA3_COLOR, dash='dot')
                 ))
             fig.update_layout(
-                title=dict(text="Activité Sorties : Vue Annuelle (Mensuelle)", font=dict(color=TEXT_COLOR)),
+                title=dict(text="Activité Sorties : Vue Annuelle (Mensuelle)", font=dict(color=TEXT_COLOR), x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Mois", font=dict(color=TEXT_COLOR))),
                 yaxis=dict(title=dict(text="Durée moyenne sortie (min)", font=dict(color=DATA1_COLOR)), tickfont=dict(color=DATA1_COLOR)),
                 yaxis2=dict(title=dict(text="Nombre", font=dict(color=DATA2_COLOR)), tickfont=dict(color=DATA2_COLOR), showgrid=False),
-                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+                legend=LEGEND
             )
         else:
             fig.update_layout(title=dict(text="Outings: No yearly data available", font=dict(color=TEXT_COLOR)))
@@ -203,11 +211,11 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
                 ))
 
             fig.update_layout(
-                title=dict(text=f"Activité Sorties : Vue Journalière - {selected_month}", font=dict(color=TEXT_COLOR)),
+                title=dict(text=f"Activité Sorties : Vue Journalière - {selected_month}", font=dict(color=TEXT_COLOR), x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Jour", font=dict(color=TEXT_COLOR))),
                 yaxis=dict(title=dict(text="Nb. sorties / jour", font=dict(color=DATA2_COLOR)), tickfont=dict(color=DATA2_COLOR)),
                 yaxis2=dict(title=dict(text="Durée totale sorties / jour (min)", font=dict(color=DATA1_COLOR)), tickfont=dict(color=DATA1_COLOR), showgrid=False),
-                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+                legend=LEGEND
             )
         else:
             fig.update_layout(title=dict(text=f"Outings: No daily data for {selected_month}", font=dict(color=TEXT_COLOR)))

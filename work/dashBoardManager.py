@@ -82,7 +82,7 @@ app.layout = html.Div(id="app-container", children=[
             # Sélecteur d'Activité
             html.Div(className='selector', children=[
             
-                html.Label("Activity:"), 
+                html.Label("Activity :"), 
                 dcc.Dropdown(
                     id='activity-type-selector', 
                     options=[
@@ -92,13 +92,13 @@ app.layout = html.Div(id="app-container", children=[
                     ],
                     value='toilet',
                     clearable=False,
-                    className='dash-dropdown' # General class for dropdowns
+                    className='dash-dropdown' 
                 ),
             ]),
 
             html.Div(className='selector', children=[
             
-               html.Label("View scale:"), # Styled by .control-row label
+               html.Label("View scale :"), 
                 dcc.RadioItems(
                     id='scale-selector',
                     options=[

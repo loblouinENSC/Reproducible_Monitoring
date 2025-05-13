@@ -13,12 +13,12 @@ DATA1_COLOR = '#36A0EB' #bleu
 DATA2_COLOR = '#F14864' #rouge
 DATAMONTH_COLOR = '#36A0EB' 
 
-LEGEND = dict(orientation="h",yanchor="bottom",y=1.1,xanchor="left",x=0) #variable pour le placement de la légende
-MARGIN_CHART = dict(l=70, r=70, b=70, t=130, pad=3) # Add this to other chart !! #variable pour les marges du graphique
+# --- Graph Configuration ---
+LEGEND = dict(orientation="h",yanchor="bottom",y=1.1,xanchor="center",x=0.5) #variable pour le placement de la légende
+MARGIN_CHART = dict(l=70, r=70, b=70, t=150, pad=3)
 
-TITLE_X = 0.5
-TITLE_Y = 0.95
-
+TITLE_X = 0.06
+TITLE_Y = 0.92
 
 # --- Data Loading and Processing Function ---
 def get_sleep_data():
@@ -117,7 +117,7 @@ def create_sleep_figure(daily_data, monthly_data, daily_failure_markers, scale, 
         xaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis2=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
-        margin=dict(l=70, r=70, b=70, t=150, pad=3) # Add this to other chart !! #variable pour les marges du graphique
+        margin=MARGIN_CHART
     )
 
     if scale == 'year':
