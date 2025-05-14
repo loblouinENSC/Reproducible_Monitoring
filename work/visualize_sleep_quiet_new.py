@@ -20,7 +20,8 @@ MARGIN_CHART = dict(l=70, r=70, b=70, t=150, pad=3)
 TITLE_X = 0.06
 TITLE_Y = 0.92
 
-# --- Data Loading and Processing Function ---
+
+# --- Fonction de Chargement et Prétraitement des Données ---
 def get_sleep_data():
     """Loads and preprocesses sleep and bed failure data."""
     try:
@@ -91,6 +92,8 @@ def get_sleep_data():
         sleep_monthly['bed_failure_sum'] = sleep_monthly['bed_failure_sum'].fillna(0)
     sleep_monthly = sleep_monthly.reset_index().rename(columns={'index': 'date'})
 
+    sleep_monthly['month_label'] = sleep_monthly['date'].dt.strftime('%m/%y') #Pourquoi ça ne marche pas ?
+
     # Add year_month to daily markers for filtering in the figure function
     if not bed_failure_daily_markers.empty and 'date' in bed_failure_daily_markers.columns:
          if pd.api.types.is_datetime64_any_dtype(bed_failure_daily_markers['date']):
@@ -102,6 +105,7 @@ def get_sleep_data():
                  bed_failure_daily_markers['year_month'] = bed_failure_daily_markers['date'].dt.to_period('M').astype(str)
 
     return sleep_daily, sleep_monthly, bed_failure_daily_markers
+
 
 # --- Figure Creation Function ---
 def create_sleep_figure(daily_data, monthly_data, daily_failure_markers, scale, selected_month):
@@ -117,14 +121,20 @@ def create_sleep_figure(daily_data, monthly_data, daily_failure_markers, scale, 
         xaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis2=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
-        margin=MARGIN_CHART
+        margin=MARGIN_CHART,
+        hoverlabel=dict( # Configuration de l'infobulle (tooltip)
+            font_size=16,                  
+            font_color="white",              
+            namelength=-1 # Affiche le nom complet de la trace
+        )
     )
 
     if scale == 'year':
         df = monthly_data
         if not df.empty:
-            fig.add_trace(go.Bar(x=df['date'], y=df['duration_mean'], name="Durée moyenne sommeil (h)", error_y=dict(type='data', array=df['duration_sem']), marker_color=DATA1_COLOR))
-            fig.add_trace(go.Scatter(x=df['date'], y=df['bed_failure_sum'], name="Jours échec lit (total)", yaxis='y2', mode='lines+markers', line=dict(color=DATA2_COLOR, dash='dot')))
+            fig.add_trace(go.Bar(x=df['month_label'], y=df['duration_mean'], name="Durée moyenne sommeil (h)", error_y=dict(type='data', array=df['duration_sem']), marker_color=DATA1_COLOR))
+            fig.add_trace(go.Scatter(x=df['month_label'], y=df['bed_failure_sum'], name="Jours échec lit (total)", yaxis='y2', mode='lines+markers', line=dict(color=DATA2_COLOR, dash='dot')))
+            
             fig.update_layout(
                 title=dict(text="Vue Annuelle : Activité de Sommeil Mensuelle", font=dict(color=TEXT_COLOR), x= TITLE_X, y = TITLE_Y),
                 xaxis=dict(title=dict(text="Mois", font=dict(color=TEXT_COLOR))),
@@ -134,6 +144,7 @@ def create_sleep_figure(daily_data, monthly_data, daily_failure_markers, scale, 
             )
         else:
             fig.update_layout(title=dict(text="Yearly View: No monthly data available", font=dict(color=TEXT_COLOR)))
+
 
     elif scale == 'month' and selected_month:
         df_daily_s = daily_data[daily_data['year_month'] == selected_month]
@@ -161,6 +172,7 @@ def create_sleep_figure(daily_data, monthly_data, daily_failure_markers, scale, 
         fig.update_layout(title=dict(text="Aucune donnée à afficher", font=dict(color=TEXT_COLOR)))
 
     return fig
+
 
 # --- Standalone App Execution ---
 if __name__ == '__main__':

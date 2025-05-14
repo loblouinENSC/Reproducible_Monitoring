@@ -72,13 +72,14 @@ def get_outings_data():
         outings_daily['year_month'] = outings_daily['date'].dt.to_period('M').astype(str)
     else:
         outings_daily = pd.DataFrame(columns=['date', 'activity_count_sum', 'duration_min_sum', 'duration_min_mean', 'duration_min_sem', 'year_month'])
+    
 
-    # Monthly Aggregation (Outings & Door Failure)
+      # Agrégation Mensuelle (Sorties & Échecs de Porte)
     if not activity.empty:
         outings_monthly_agg = activity.resample('ME').agg(
             activity_count_sum=('activity_count', 'sum'),
-            duration_min_mean=('durationMin', 'mean'), # Mean duration of outings in the month
-            duration_min_sem=('durationMin', 'sem')    # SEM of outing durations in the month
+            duration_min_mean=('durationMin', 'mean'), # Durée moyenne des sorties dans le mois
+            duration_min_sem=('durationMin', 'sem')    # SEM des durées de sortie dans le mois
         )
     else:
         outings_monthly_agg = pd.DataFrame(columns=['activity_count_sum', 'duration_min_mean', 'duration_min_sem'], index=pd.to_datetime([]))
@@ -86,7 +87,7 @@ def get_outings_data():
 
     if not door_failure.empty:
         door_failure_monthly_agg = door_failure.fillna(0).resample('ME').agg(
-            door_failure_day_count=('door_failure', lambda x: (x > 0).sum()) # Count days with failure
+            door_failure_day_count=('door_failure', lambda x: (x > 0).sum()) # Compte les jours avec échec
          )
     else:
         door_failure_monthly_agg = pd.DataFrame(columns=['door_failure_day_count'], index=pd.to_datetime([]))
@@ -98,15 +99,21 @@ def get_outings_data():
         if pd.notna(start_date) and pd.notna(end_date):
             full_idx = pd.date_range(start=start_date, end=end_date, freq='ME')
             outings_monthly = outings_monthly.reindex(full_idx)
-        # Fill NaNs after reindex
+        # Remplit les NaN après réindexation
         outings_monthly['activity_count_sum'] = outings_monthly['activity_count_sum'].fillna(0)
         outings_monthly['duration_min_mean'] = outings_monthly['duration_min_mean'].fillna(np.nan)
         outings_monthly['duration_min_sem'] = outings_monthly['duration_min_sem'].fillna(0)
         outings_monthly['door_failure_day_count'] = outings_monthly['door_failure_day_count'].fillna(0)
 
     outings_monthly = outings_monthly.reset_index().rename(columns={'index': 'date'})
+    # Crée les libellés de mois pour l'axe x en vue annuelle avec le format MM/YY
+    if 'date' in outings_monthly.columns and pd.api.types.is_datetime64_any_dtype(outings_monthly['date']):
+        outings_monthly['month_label'] = outings_monthly['date'].dt.strftime('%m/%y') # Format MM/YY
+    else:
+        outings_monthly['month_label'] = ''
 
-    # Add year_month to daily door failure markers for filtering in the figure function
+
+    # Ajoute year_month aux marqueurs quotidiens d'échec de porte pour filtrage dans la fonction de figure
     if not door_failure_daily_markers.empty and 'date' in door_failure_daily_markers.columns:
         if pd.api.types.is_datetime64_any_dtype(door_failure_daily_markers['date']):
             door_failure_daily_markers['year_month'] = door_failure_daily_markers['date'].dt.to_period('M').astype(str)
@@ -117,6 +124,7 @@ def get_outings_data():
                 door_failure_daily_markers['year_month'] = door_failure_daily_markers['date'].dt.to_period('M').astype(str)
 
     return outings_daily, outings_monthly, door_failure_daily_markers
+
 
 # --- Figure Creation Function ---
 def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale, selected_month):
@@ -132,39 +140,24 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
         xaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis2=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)', overlaying='y', side='right'),
-        margin=MARGIN_CHART
+        margin=MARGIN_CHART,
+        hoverlabel=dict(  # Configuration de l'infobulle (tooltip)
+            font_size=16,                  
+            font_color="white",              
+            namelength=-1 # Affiche le nom complet de la trace
+        )
     )
 
     if scale == 'year':
         df = monthly_data
         if not df.empty:
             # Y1: Average duration of outings
-            fig.add_trace(go.Bar(
-                x=df['date'],
-                y=df['duration_min_mean'],
-                name="Durée moy. sortie (min)",
-                error_y=dict(type='data', array=df['duration_min_sem']),
-                marker_color=DATA1_COLOR
-            ))
+            fig.add_trace(go.Bar(x=df['month_label'], y=df['duration_min_mean'], name="Durée moy. sortie (min)", error_y=dict(type='data', array=df['duration_min_sem']),marker_color=DATA1_COLOR))
             # Y2: Number of outings
-            fig.add_trace(go.Scatter(
-                x=df['date'],
-                y=df['activity_count_sum'],
-                name="Nb. sorties / mois",
-                yaxis='y2',
-                mode='lines+markers',
-                line=dict(color=DATA2_COLOR)
-            ))
+            fig.add_trace(go.Scatter(x=df['month_label'],y=df['activity_count_sum'],name="Nb. sorties / mois",yaxis='y2', mode='lines+markers',line=dict(color=DATA2_COLOR)))
             # Y2: Door failure days
             if 'door_failure_day_count' in df.columns:
-                fig.add_trace(go.Scatter(
-                    x=df['date'],
-                    y=df['door_failure_day_count'],
-                    name="Jours échec porte / mois",
-                    yaxis='y2',
-                    mode='lines+markers',
-                    line=dict(color=DATA3_COLOR, dash='dot')
-                ))
+                fig.add_trace(go.Scatter(x=df['month_label'],y=df['door_failure_day_count'],name="Jours échec porte / mois", yaxis='y2', mode='lines+markers',line=dict(color=DATA3_COLOR, dash='dot')))
             fig.update_layout(
                 title=dict(text="Activité Sorties : Vue Annuelle (Mensuelle)", font=dict(color=TEXT_COLOR), x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Mois", font=dict(color=TEXT_COLOR))),
@@ -184,31 +177,13 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
 
         if not df_daily_outings.empty:
             # Y1: Number of outings per day
-            fig.add_trace(go.Bar(
-                x=df_daily_outings['date'],
-                y=df_daily_outings['activity_count_sum'],
-                name="Nb. sorties / jour",
-                marker_color=DATA2_COLOR
-            ))
+            fig.add_trace(go.Bar( x=df_daily_outings['date'], y=df_daily_outings['activity_count_sum'], name="Nb. sorties / jour", marker_color=DATA2_COLOR))
             # Y2: Total duration of outings per day
-            fig.add_trace(go.Scatter(
-                x=df_daily_outings['date'],
-                y=df_daily_outings['duration_min_sum'],
-                name="Durée totale sorties / jour (min)",
-                yaxis='y2',
-                mode='lines',
-                line=dict(color=DATA1_COLOR)
-            ))
+            fig.add_trace(go.Scatter(x=df_daily_outings['date'], y=df_daily_outings['duration_min_sum'], name="Durée totale sorties / jour (min)", yaxis='y2', mode='lines', line=dict(color=DATA1_COLOR)))
+            
             # Markers for door failure days
             if not df_daily_fail_markers.empty:
-                fig.add_trace(go.Scatter(
-                    x=df_daily_fail_markers['date'],
-                    y=[0.1] * len(df_daily_fail_markers), # Position near x-axis on primary y-axis
-                    name="Échec porte",
-                    mode='markers',
-                    marker=dict(color=DATA3_COLOR, size=10, symbol='x'),
-                    yaxis='y1' # Explicitly assign to y1 if y2 is used for something else
-                ))
+                fig.add_trace(go.Scatter( x=df_daily_fail_markers['date'], y=[0.1] * len(df_daily_fail_markers), name="Échec porte", mode='markers', marker=dict(color=DATA3_COLOR, size=10, symbol='x'), yaxis='y1'))
 
             fig.update_layout(
                 title=dict(text=f"Activité Sorties : Vue Journalière - {selected_month}", font=dict(color=TEXT_COLOR), x=TITLE_X, y=TITLE_Y),

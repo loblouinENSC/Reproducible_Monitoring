@@ -9,10 +9,10 @@ APP_TITLE = "Toilet Activity Viewer"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
 DATA1_COLOR = '#36A0EB' 
-DATA2_COLOR = '#F14864'
+DATA2_COLOR = '#43D37B' # green
 DATA3_COLOR = '#EB9636'
-DATAMONTH_COLOR = '#36A0EB'
-#43D37B # green
+DATAMONTH_COLOR = DATA1_COLOR
+DATAMONTH2_COLOR = DATA2_COLOR
 
 # --- Graph Configuration ---
 LEGEND = dict(orientation="h",yanchor="bottom",y=1.1,xanchor="center",x=0.5) 
@@ -20,6 +20,8 @@ MARGIN_CHART = dict(l=70, r=70, b=70, t=150, pad=3)
 
 TITLE_X = 0.06
 TITLE_Y = 0.92
+
+
 
 # --- Data Loading and Processing Function ---
 def get_toilet_data():
@@ -41,16 +43,17 @@ def get_toilet_data():
                                 index=pd.to_datetime([]))
         activity.index.name = 'date'
 
-    # Daily Aggregation
+    # Agrégation Journalière
     if not activity.empty:
         activity_daily = activity.resample('D').agg(
             activity_count_sum=('activity_count', 'sum'),
-            duration_min_mean=('duration_min', 'mean'), # Utilise duration_min
-            duration_min_sem=('duration_min', 'sem')    # Utilise duration_min
+            duration_min_mean=('duration_min', 'mean'), # Durée moyenne d'une visite ce jour-là
+            duration_min_sem=('duration_min', 'sem'),   # SEM de la durée moyenne d'une visite
+            duration_min_sum=('duration_min', 'sum')    # Somme totale des durées pour ce jour
         ).reset_index()
         activity_daily['year_month'] = activity_daily['date'].dt.to_period('M').astype(str)
     else:
-        activity_daily = pd.DataFrame(columns=['date', 'activity_count_sum', 'duration_min_mean', 'duration_min_sem', 'year_month'])
+        activity_daily = pd.DataFrame(columns=['date', 'activity_count_sum', 'duration_min_mean', 'duration_min_sem', 'duration_min_sum', 'year_month'])
 
     # Monthly Aggregation
     if not activity.empty:
@@ -69,12 +72,16 @@ def get_toilet_data():
         else:
             activity_monthly['days_in_month'] = 0
             activity_monthly['activity_count_mean_daily'] = 0
+            
         # Ajout du format MM/YY pour l'affichage des mois
         activity_monthly['month_label'] = activity_monthly['date'].dt.strftime('%m/%y')
     else:
        activity_monthly = pd.DataFrame(columns=['date', 'activity_count_sum', 'duration_min_mean', 'duration_min_sem', 'days_in_month', 'activity_count_mean_daily', 'month_label'])
 
     return activity_daily, activity_monthly
+
+
+
 
 # --- Figure Creation Function ---
 def create_toilet_figure(daily_data, monthly_data, scale, selected_month):
@@ -91,17 +98,25 @@ def create_toilet_figure(daily_data, monthly_data, scale, selected_month):
         xaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis2=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
-        margin = MARGIN_CHART
+        margin = MARGIN_CHART,
+        hoverlabel=dict( # Configuration de l'infobulle (tooltip)
+            font_size=16,                   
+            font_color="white",          
+            namelength=-1                    # Affiche le nom complet de la trace
+        )
         
     )
 
     if scale == 'year':
         df = monthly_data
         if not df.empty:
+
             fig.add_trace(go.Bar(x=df['month_label'], y=df['duration_min_mean'], name="Durée moyenne (min)", error_y=dict(type='data', array=df['duration_min_sem']), marker_color=DATA1_COLOR))
             fig.add_trace(go.Scatter(x=df['month_label'], y=df['activity_count_sum'], name="Passages totaux", yaxis='y2', mode='lines+markers', line=dict(color=DATA2_COLOR)))
+            
             if 'activity_count_mean_daily' in df.columns:
                 fig.add_trace(go.Scatter(x=df['month_label'], y=df['activity_count_mean_daily'], name="Passages moyens/jour", yaxis='y2', mode='lines+markers', line=dict(color=DATA3_COLOR)))
+            
             fig.update_layout(
                 title=dict(text="Vue Annuelle : Activité mensuelle", font=dict(color=TEXT_COLOR),x = TITLE_X, y = TITLE_Y),
                 xaxis=dict(title=dict(text="Mois", font=dict(color=TEXT_COLOR))),
@@ -115,15 +130,24 @@ def create_toilet_figure(daily_data, monthly_data, scale, selected_month):
     elif scale == 'month' and selected_month:
         df = daily_data[daily_data['year_month'] == selected_month]
         if not df.empty:
-            fig.add_trace(go.Bar(x=df['date'], y=df['activity_count_sum'], name="Passages par jour", marker_color=DATAMONTH_COLOR))
+
+             # Trace 1: Durée TOTALE par jour en minutes (Axe Y principal - gauche)
+            if 'duration_min_sum' in df.columns: 
+                fig.add_trace(go.Bar(x=df['date'], y=df['duration_min_sum'], name="Durée totale (min)", yaxis='y1', marker_color = DATAMONTH_COLOR))
+            
+
+            # Trace 2: Nombre de passages par jour (Axe Y secondaire - droite)
+            fig.add_trace(go.Scatter(x=df['date'], y=df['activity_count_sum'],name="Passages par jour",yaxis='y2', mode='lines+markers', line=dict(color=DATAMONTH2_COLOR) ))
+
             fig.update_layout(
                 title=dict(text=f"Vue Journalière : {selected_month}", font=dict(color=TEXT_COLOR), x=TITLE_X, y=TITLE_Y),
-                xaxis=dict(title=dict(text="Jour", font=dict(color=TEXT_COLOR))),
-                yaxis=dict(title=dict(text="Nombre de passages", font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR)),
+                xaxis=dict(title=dict(text="Jour")),
+                yaxis=dict(title=dict(text="Durée totale (min)", font=dict(color=DATAMONTH_COLOR)), tickfont=dict(color=DATAMONTH_COLOR),),
+                yaxis2=dict(title=dict(text="Nombre de passages", font=dict(color=DATAMONTH2_COLOR)), tickfont=dict(color=DATAMONTH2_COLOR),overlaying='y', side='right',showgrid=False),
                 legend=LEGEND
             )
         else:
-            fig.update_layout(title=dict(text=f"Monthly View: No data available for {selected_month}", font=dict(color=TEXT_COLOR)))
+            fig.update_layout(title=dict(text=f"Monthly View: No data available for {selected_month}", x=TITLE_X, y=TITLE_Y))
     elif scale == 'month' and not selected_month:
         fig.update_layout(title=dict(text="Monthly View: Please select a month", font=dict(color=TEXT_COLOR)))
 
@@ -131,6 +155,8 @@ def create_toilet_figure(daily_data, monthly_data, scale, selected_month):
         fig.update_layout(title=dict(text="Aucune donnée à afficher", font=dict(color=TEXT_COLOR)))
 
     return fig
+
+
 
 # --- Standalone App Execution ---
 if __name__ == '__main__':
@@ -168,6 +194,8 @@ if __name__ == '__main__':
         dcc.Graph(id='activity-graph', style={'height': '60vh'})
     ])
 
+
+
     # Callback to show/hide month dropdown
     @app.callback(
         Output('month-dropdown-container', 'style'),
@@ -186,6 +214,7 @@ if __name__ == '__main__':
     def update_graph_standalone(scale, selected_month):
         # Call the figure creation function using pre-loaded data
         return create_toilet_figure(activity_daily_data, activity_monthly_data, scale, selected_month)
+
 
     # Run the app
     app.run(debug=True)
