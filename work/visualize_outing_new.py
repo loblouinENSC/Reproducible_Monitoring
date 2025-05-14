@@ -27,8 +27,8 @@ def get_outings_data():
         activity = pd.read_csv(OUTINGS_LOG_FILE, delimiter=';', decimal=",",
                                names=["date", "annotation", "activity_count", "duration"],
                                parse_dates=["date"], index_col="date")
-        # Convert duration from seconds to minutes
-        activity['durationMin'] = activity['duration'] / 60
+        # Convert duration from seconds to hours
+        activity['durationMin'] = activity['duration'] / 3600
     except FileNotFoundError:
         print(f"Error: '{OUTINGS_LOG_FILE}' not found.")
         activity = pd.DataFrame(columns=["annotation", "activity_count", "duration", "durationMin"],
@@ -152,7 +152,7 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
         df = monthly_data
         if not df.empty:
             # Y1: Average duration of outings
-            fig.add_trace(go.Bar(x=df['month_label'], y=df['duration_min_mean'], name="Durée moy. sortie (min)", error_y=dict(type='data', array=df['duration_min_sem']),marker_color=DATA1_COLOR))
+            fig.add_trace(go.Bar(x=df['month_label'], y=df['duration_min_mean'], name="Durée moy. sortie (heures)", error_y=dict(type='data', array=df['duration_min_sem']),marker_color=DATA1_COLOR))
             # Y2: Number of outings
             fig.add_trace(go.Scatter(x=df['month_label'],y=df['activity_count_sum'],name="Nb. sorties / mois",yaxis='y2', mode='lines+markers',line=dict(color=DATA2_COLOR)))
             # Y2: Door failure days
@@ -161,7 +161,7 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
             fig.update_layout(
                 title=dict(text="Activité Sorties : Vue Annuelle (Mensuelle)", font=dict(color=TEXT_COLOR), x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Mois", font=dict(color=TEXT_COLOR))),
-                yaxis=dict(title=dict(text="Durée moyenne sortie (min)", font=dict(color=DATA1_COLOR)), tickfont=dict(color=DATA1_COLOR)),
+                yaxis=dict(title=dict(text="Durée moyenne sortie (heures)", font=dict(color=DATA1_COLOR)), tickfont=dict(color=DATA1_COLOR)),
                 yaxis2=dict(title=dict(text="Nombre", font=dict(color=DATA2_COLOR)), tickfont=dict(color=DATA2_COLOR), showgrid=False),
                 legend=LEGEND
             )
@@ -177,7 +177,7 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
 
         if not df.empty:
             # Y1: Number of outings per day
-            fig.add_trace(go.Bar(x=df['date'], y=df['duration_min_sum'], name="Durée totale sorties / jour (min)", marker_color=DATA1_COLOR))
+            fig.add_trace(go.Bar(x=df['date'], y=df['duration_min_sum'], name="Durée totale sorties / jour (heures)", marker_color=DATA1_COLOR))
 
             fig.add_trace(go.Scatter( x=df['date'], y=df['activity_count_sum'], name="Nb. sorties / jour", yaxis='y2', mode='lines', line=dict(color=DATA2_COLOR)))
             
@@ -188,7 +188,7 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
             fig.update_layout(
                 title=dict(text=f"Activité Sorties : Vue Journalière - {selected_month}", font=dict(color=TEXT_COLOR), x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Jour", font=dict(color=TEXT_COLOR)), tickformat='%d',tickmode='array', tickvals=df['date'], ticktext=df['date'].dt.strftime('%d'), dtick="D1"),
-                yaxis=dict(title=dict(text="Durée totale sorties / jour (min)", font=dict(color=DATA1_COLOR)), tickfont=dict(color=DATA1_COLOR)),
+                yaxis=dict(title=dict(text="Durée totale sorties / jour (heures))", font=dict(color=DATA1_COLOR)), tickfont=dict(color=DATA1_COLOR)),
                 yaxis2=dict(title=dict(text="Nb. sorties / jour", font=dict(color=DATA2_COLOR)), tickfont=dict(color=DATA2_COLOR), showgrid=False),
                 legend=LEGEND
             )

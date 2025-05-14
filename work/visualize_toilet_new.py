@@ -23,62 +23,98 @@ TITLE_Y = 0.92
 
 
 
-# --- Data Loading and Processing Function ---
+# --- Data Loading and Processing Function --- #
 def get_toilet_data():
     """Loads and preprocesses toilet activity data, returning daily and monthly aggregations."""
     try:
         activity = pd.read_csv(TOILET_LOG_FILE, delimiter=';', decimal=",",
-                               names=["date", "annotation", "activity_count", "duration"],
-                               parse_dates=["date"], index_col="date")
+                                names=["date", "annotation", "activity_count", "duration"],
+                                parse_dates=["date"], index_col="date")
         # Conversion de la durée de secondes en minutes
         activity['duration_min'] = activity['duration'] / 60
     except FileNotFoundError:
         print(f"Error: '{TOILET_LOG_FILE}' not found.")
         activity = pd.DataFrame(columns=["annotation", "activity_count", "duration","duration_min"],
-                                index=pd.to_datetime([]))
+                                 index=pd.to_datetime([]))
         activity.index.name = 'date'
     except Exception as e:
         print(f"Error loading {TOILET_LOG_FILE}: {e}")
         activity = pd.DataFrame(columns=["annotation", "activity_count", "duration","duration_min"],
-                                index=pd.to_datetime([]))
+                                 index=pd.to_datetime([]))
         activity.index.name = 'date'
 
-    # Agrégation Journalière
+    # Agrégation Journalière intermédiaire pour les calculs mensuels
+    # Calcule la somme des durées et des passages par jour.
     if not activity.empty:
-        activity_daily = activity.resample('D').agg(
-            activity_count_sum=('activity_count', 'sum'),
-            duration_min_mean=('duration_min', 'mean'), # Durée moyenne d'une visite ce jour-là
-            duration_min_sem=('duration_min', 'sem'),   # SEM de la durée moyenne d'une visite
-            duration_min_sum=('duration_min', 'sum')    # Somme totale des durées pour ce jour
-        ).reset_index()
-        activity_daily['year_month'] = activity_daily['date'].dt.to_period('M').astype(str)
+        activity_daily_intermediate = activity.resample('D').agg(
+            activity_count_sum_daily=('activity_count', 'sum'), # Somme des passages pour ce jour
+            duration_min_sum_daily=('duration_min', 'sum')    # Somme totale des durées pour ce jour
+        )
     else:
-        activity_daily = pd.DataFrame(columns=['date', 'activity_count_sum', 'duration_min_mean', 'duration_min_sem', 'duration_min_sum', 'year_month'])
+        activity_daily_intermediate = pd.DataFrame(
+            columns=['activity_count_sum_daily', 'duration_min_sum_daily'],
+            index=pd.to_datetime([])
+        )
+        activity_daily_intermediate.index.name = 'date'
 
-    # Monthly Aggregation
+    # Préparation de 'activity_daily' pour la vue journalière du graphique
+    # Le graphique journalier a besoin de : date, duration_min_sum, activity_count_sum, year_month
     if not activity.empty:
-        activity_monthly = activity.resample('ME').agg(
-            activity_count_sum=('activity_count', 'sum'),
-            duration_min_mean=('duration_min', 'mean'), # Utilise duration_min
-            duration_min_sem=('duration_min', 'sem')    # Utilise duration_min
+         activity_daily_for_graph = activity.resample('D').agg(
+            activity_count_sum=('activity_count', 'sum'), # Total des passages ce jour-là
+            duration_min_sum=('duration_min', 'sum')      # Total des minutes ce jour-là
         ).reset_index()
+         activity_daily_for_graph['year_month'] = activity_daily_for_graph['date'].dt.to_period('M').astype(str)
+    else:
+        activity_daily_for_graph = pd.DataFrame(columns=['date', 'activity_count_sum', 'duration_min_sum', 'year_month'])
+
+
+    # Monthly Aggregation 
+    if not activity_daily_intermediate.empty:
+        # Préparer les totaux quotidiens (duration_min_sum_daily) pour la moyenne mensuelle.
+        # Remplacer 0 par NaN pour que .mean() et .sem() les ignorent,
+        # ainsi les jours sans aucune activité ne sont pas comptés comme "0 minute".
+        monthly_agg_input = activity_daily_intermediate.copy()
+        monthly_agg_input['duration_min_sum_daily_for_avg'] = monthly_agg_input['duration_min_sum_daily'].replace(0, np.nan)
+
+        activity_monthly = monthly_agg_input.resample('ME').agg(
+            # Moyenne mensuelle des SOMMES QUOTIDIENNES de durée
+            duration_min_mean_of_daily_totals=('duration_min_sum_daily_for_avg', 'mean'),
+            duration_min_sem_of_daily_totals=('duration_min_sum_daily_for_avg', 'sem'),
+            # Somme mensuelle des passages (basée sur les totaux quotidiens de passages)
+            activity_count_sum_monthly=('activity_count_sum_daily', 'sum')
+        ).reset_index()
+
+        # Renommer les colonnes pour correspondre à ce que le graphique attend pour la durée moyenne et la somme des passages
+        activity_monthly = activity_monthly.rename(columns={
+            'duration_min_mean_of_daily_totals': 'duration_min_mean', # C'est maintenant la moyenne des totaux quotidiens
+            'duration_min_sem_of_daily_totals': 'duration_min_sem',
+            'activity_count_sum_monthly': 'activity_count_sum'      # Somme totale des passages pour le mois
+        })
+
+        # Calcul de activity_count_mean_daily (nombre moyen de passages par jour DANS LE MOIS)
         if pd.api.types.is_datetime64_any_dtype(activity_monthly['date']):
             activity_monthly['days_in_month'] = activity_monthly['date'].dt.daysinmonth
             activity_monthly['activity_count_mean_daily'] = np.where(
                 activity_monthly['days_in_month'] > 0,
-                activity_monthly['activity_count_sum'] / activity_monthly['days_in_month'],
+                activity_monthly['activity_count_sum'] / activity_monthly['days_in_month'], # passages totaux du mois / jours du mois
                 0
             )
         else:
             activity_monthly['days_in_month'] = 0
             activity_monthly['activity_count_mean_daily'] = 0
-            
-        # Ajout du format MM/YY pour l'affichage des mois
-        activity_monthly['month_label'] = activity_monthly['date'].dt.strftime('%m/%y')
-    else:
-       activity_monthly = pd.DataFrame(columns=['date', 'activity_count_sum', 'duration_min_mean', 'duration_min_sem', 'days_in_month', 'activity_count_mean_daily', 'month_label'])
 
-    return activity_daily, activity_monthly
+        # Ajout du format MM/YY pour l'affichage des mois
+        if 'date' in activity_monthly.columns and not activity_monthly.empty:
+            activity_monthly['month_label'] = activity_monthly['date'].dt.strftime('%m/%y')
+        else:
+             activity_monthly['month_label'] = pd.Series(dtype='str')
+    else:
+        activity_monthly = pd.DataFrame(columns=['date', 'activity_count_sum', 'duration_min_mean',
+                                                 'duration_min_sem', 'days_in_month',
+                                                 'activity_count_mean_daily', 'month_label'])
+
+    return activity_daily_for_graph, activity_monthly
 
 
 
@@ -102,9 +138,8 @@ def create_toilet_figure(daily_data, monthly_data, scale, selected_month):
         hoverlabel=dict( # Configuration de l'infobulle (tooltip)
             font_size=16,                   
             font_color="white",          
-            namelength=-1                    # Affiche le nom complet de la trace
+            namelength=-1                   
         )
-        
     )
 
     if scale == 'year':
@@ -135,7 +170,6 @@ def create_toilet_figure(daily_data, monthly_data, scale, selected_month):
             if 'duration_min_sum' in df.columns: 
                 fig.add_trace(go.Bar(x=df['date'], y=df['duration_min_sum'], name="Durée totale (min)", yaxis='y1', marker_color = DATAMONTH_COLOR))
             
-
             # Trace 2: Nombre de passages par jour (Axe Y secondaire - droite)
             fig.add_trace(go.Scatter(x=df['date'], y=df['activity_count_sum'],name="Passages par jour",yaxis='y2', mode='lines+markers', line=dict(color=DATAMONTH2_COLOR) ))
 

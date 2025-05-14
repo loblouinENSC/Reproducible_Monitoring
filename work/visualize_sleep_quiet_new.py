@@ -26,8 +26,8 @@ def get_sleep_data():
     """Loads and preprocesses sleep and bed failure data."""
     try:
         sleep = pd.read_csv(SLEEP_LOG_FILE, delimiter=';', decimal=",",
-                               names=["date", "annotation", "sleep_count", "duration"],
-                               parse_dates=["date"], index_col="date")
+                            names=["date", "annotation", "sleep_count", "duration"],
+                            parse_dates=["date"], index_col="date")
         sleep['durationHr'] = sleep['duration'] / 3600
         sleep = sleep[['durationHr']]
     except FileNotFoundError:
@@ -41,8 +41,8 @@ def get_sleep_data():
 
     try:
         bed_failure = pd.read_csv(BED_FAILURE_FILE, delimiter=';', decimal=",",
-                                     names=["date", "bed_failure"],
-                                     parse_dates=["date"], index_col="date")
+                                  names=["date", "bed_failure"],
+                                  parse_dates=["date"], index_col="date")
         bed_failure['bed_failure'] = pd.to_numeric(bed_failure['bed_failure'], errors='coerce').fillna(0)
         bed_failure_daily_markers = bed_failure[bed_failure['bed_failure'] > 0].copy().reset_index()
     except FileNotFoundError:
@@ -58,51 +58,78 @@ def get_sleep_data():
 
     # Daily Aggregation (Sleep)
     if not sleep.empty:
+        # Calcule la somme des durées de sommeil par jour.
+        # Les jours sans aucune entrée auront duration_sum = 0.
         sleep_daily = sleep.resample('D').agg(duration_sum=('durationHr', 'sum')).reset_index()
         sleep_daily['year_month'] = sleep_daily['date'].dt.to_period('M').astype(str)
     else:
         sleep_daily = pd.DataFrame(columns=['date', 'duration_sum', 'year_month'])
 
     # Monthly Aggregation (Sleep & Bed Failure)
-    if not sleep.empty:
-        sleep_monthly_agg = sleep.resample('ME').agg(
-            duration_mean=('durationHr', 'mean'),
-            duration_sem=('durationHr', 'sem')
+    if not sleep_daily.empty:
+
+        # Préparer les données pour le calcul de la moyenne mensuelle.
+        # On veut la moyenne des totaux de sommeil quotidiens.
+        # Les jours sans enregistrement (duration_sum == 0) ne doivent pas être comptés.
+        # Remplacer 0 par NaN pour que .mean() et .sem() les ignorent.
+        temp_daily_for_agg = sleep_daily[['date', 'duration_sum']].copy()
+        temp_daily_for_agg['duration_sum_for_avg'] = temp_daily_for_agg['duration_sum'].replace(0, np.nan)
+
+        # Agréger au niveau mensuel en utilisant la colonne 'date' de temp_daily_for_agg
+        # et en calculant la moyenne et le SEM de 'duration_sum_for_avg'.
+        sleep_monthly_agg = temp_daily_for_agg.set_index('date').resample('ME').agg(
+            duration_mean=('duration_sum_for_avg', 'mean'),
+            duration_sem=('duration_sum_for_avg', 'sem')
         )
     else:
         sleep_monthly_agg = pd.DataFrame(columns=['duration_mean', 'duration_sem'], index=pd.to_datetime([]))
         sleep_monthly_agg.index.name = 'date'
 
+    # Bed Failure Monthly Aggregation (inchangé)
     if not bed_failure.empty:
         bed_failure_monthly_agg = bed_failure.fillna(0).resample('ME').agg(
             bed_failure_sum=('bed_failure', 'sum')
-         )
+        )
     else:
         bed_failure_monthly_agg = pd.DataFrame(columns=['bed_failure_sum'], index=pd.to_datetime([]))
         bed_failure_monthly_agg.index.name = 'date'
 
+    # Merge and Reindex (inchangé, mais utilise le nouveau sleep_monthly_agg)
     sleep_monthly = pd.merge(sleep_monthly_agg, bed_failure_monthly_agg, left_index=True, right_index=True, how='outer')
     if not sleep_monthly.empty:
+
+        # S'assurer que toutes les dates d'index sont de type datetime avant min/max
+        sleep_monthly.index = pd.to_datetime(sleep_monthly.index)
         start_date, end_date = sleep_monthly.index.min(), sleep_monthly.index.max()
         if pd.notna(start_date) and pd.notna(end_date):
             full_idx = pd.date_range(start=start_date, end=end_date, freq='ME')
             sleep_monthly = sleep_monthly.reindex(full_idx)
+
+        # Remplir les NaN pour duration_mean après le reindex, si des mois manquent complètement
         sleep_monthly['duration_mean'] = sleep_monthly['duration_mean'].fillna(np.nan)
-        sleep_monthly['duration_sem'] = sleep_monthly['duration_sem'].fillna(0)
+        sleep_monthly['duration_sem'] = sleep_monthly['duration_sem'].fillna(0) # SEM est 0 si pas de variance ou une seule donnée
         sleep_monthly['bed_failure_sum'] = sleep_monthly['bed_failure_sum'].fillna(0)
     sleep_monthly = sleep_monthly.reset_index().rename(columns={'index': 'date'})
 
-    sleep_monthly['month_label'] = sleep_monthly['date'].dt.strftime('%m/%y') #Pourquoi ça ne marche pas ?
 
-    # Add year_month to daily markers for filtering in the figure function
+    if 'date' in sleep_monthly.columns:
+        sleep_monthly['month_label'] = sleep_monthly['date'].dt.strftime('%m/%y')
+    else:
+        sleep_monthly['month_label'] = pd.Series(dtype='str')
+
+
+    # Add year_month to daily markers for filtering (inchangé)
     if not bed_failure_daily_markers.empty and 'date' in bed_failure_daily_markers.columns:
-         if pd.api.types.is_datetime64_any_dtype(bed_failure_daily_markers['date']):
-             bed_failure_daily_markers['year_month'] = bed_failure_daily_markers['date'].dt.to_period('M').astype(str)
-         else: # Attempt conversion if not already datetime
-             bed_failure_daily_markers['date'] = pd.to_datetime(bed_failure_daily_markers['date'], errors='coerce')
-             bed_failure_daily_markers.dropna(subset=['date'], inplace=True)
-             if not bed_failure_daily_markers.empty:
-                 bed_failure_daily_markers['year_month'] = bed_failure_daily_markers['date'].dt.to_period('M').astype(str)
+        if pd.api.types.is_datetime64_any_dtype(bed_failure_daily_markers['date']):
+            bed_failure_daily_markers['year_month'] = bed_failure_daily_markers['date'].dt.to_period('M').astype(str)
+        else:
+            bed_failure_daily_markers['date'] = pd.to_datetime(bed_failure_daily_markers['date'], errors='coerce')
+            bed_failure_daily_markers.dropna(subset=['date'], inplace=True)
+            if not bed_failure_daily_markers.empty:
+                bed_failure_daily_markers['year_month'] = bed_failure_daily_markers['date'].dt.to_period('M').astype(str)
+            else: # Si tout est NaT après la conversion
+                 bed_failure_daily_markers['year_month'] = pd.Series(dtype='str')
+
 
     return sleep_daily, sleep_monthly, bed_failure_daily_markers
 
