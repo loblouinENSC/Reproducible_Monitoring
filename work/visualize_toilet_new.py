@@ -141,7 +141,7 @@ def create_toilet_figure(daily_data, monthly_data, scale, selected_month):
 
             fig.update_layout(
                 title=dict(text=f"Vue Journalière : {selected_month}", font=dict(color=TEXT_COLOR), x=TITLE_X, y=TITLE_Y),
-                xaxis=dict(title=dict(text="Jour")),
+               xaxis=dict(title=dict(text="Jour", font=dict(color=TEXT_COLOR)), tickformat='%d',tickmode='array', tickvals= df['date'], ticktext= df['date'].dt.strftime('%d'), dtick="D1"),
                 yaxis=dict(title=dict(text="Durée totale (min)", font=dict(color=DATAMONTH_COLOR)), tickfont=dict(color=DATAMONTH_COLOR),),
                 yaxis2=dict(title=dict(text="Nombre de passages", font=dict(color=DATAMONTH2_COLOR)), tickfont=dict(color=DATAMONTH2_COLOR),overlaying='y', side='right',showgrid=False),
                 legend=LEGEND

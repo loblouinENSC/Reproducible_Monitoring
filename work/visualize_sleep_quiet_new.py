@@ -147,19 +147,19 @@ def create_sleep_figure(daily_data, monthly_data, daily_failure_markers, scale, 
 
 
     elif scale == 'month' and selected_month:
-        df_daily_s = daily_data[daily_data['year_month'] == selected_month]
+        df = daily_data[daily_data['year_month'] == selected_month]
         # Filter daily failure markers for the selected month
         df_daily_f = pd.DataFrame() # Initialize empty
         if not daily_failure_markers.empty and 'year_month' in daily_failure_markers.columns:
              df_daily_f = daily_failure_markers[daily_failure_markers['year_month'] == selected_month]
 
-        if not df_daily_s.empty:
-            fig.add_trace(go.Bar(x=df_daily_s['date'], y=df_daily_s['duration_sum'], name="Durée sommeil (h)", marker_color=DATAMONTH_COLOR))
+        if not df.empty:
+            fig.add_trace(go.Bar(x=df['date'], y=df['duration_sum'], name="Durée sommeil (h)", marker_color=DATAMONTH_COLOR))
             if not df_daily_f.empty:
                 fig.add_trace(go.Scatter(x=df_daily_f['date'], y=[0.1] * len(df_daily_f), name="Échec lit", mode='markers', marker=dict(color=DATA2_COLOR, size=10, symbol='x')))
             fig.update_layout(
                 title=dict(text=f"Vue Journalière : {selected_month}", font=dict(color=TEXT_COLOR), x= TITLE_X, y = TITLE_Y),
-                xaxis=dict(title=dict(text="Jour", font=dict(color=TEXT_COLOR))),
+                 xaxis=dict(title=dict(text="Jour", font=dict(color=TEXT_COLOR)), tickformat='%d',tickmode='array', tickvals=df['date'], ticktext=df['date'].dt.strftime('%d'), dtick="D1"),
                 yaxis=dict(title=dict(text="Durée sommeil (h)", font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR)),
                 legend=LEGEND
             )
