@@ -11,7 +11,7 @@ TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
 DATA1_COLOR = '#36A0EB' #bleu
 DATA2_COLOR = '#36EB7B' #vert
-DATA3_COLOR = '#F14864' #rouge - Utilisé pour les échecs de porte
+DATA3_COLOR = '#F14864' #rouge 
 
 #--- Graph Configuration ---
 LEGEND = dict(orientation="h",yanchor="bottom",y=1.1,xanchor="center",x=0.5)
@@ -57,7 +57,7 @@ def get_outings_data():
         if not door_failure_daily_markers.empty:
             temp_df_monthly = door_failure_daily_markers.copy()
             temp_df_monthly['failure_count'] = 1
-            # Ensure 'date' is datetime index for resample
+            # Ensure 'date' is datetime index 
             door_failure_source_for_monthly_agg = temp_df_monthly.set_index(pd.to_datetime(temp_df_monthly['date']))
             
     except FileNotFoundError:
@@ -141,7 +141,7 @@ def get_outings_data():
                 outings_daily_new['year_month'] = outings_daily_new['date'].dt.to_period('M').astype(str)
 
 
-    # --- Monthly Aggregation (Sorties & Échecs de Porte) ---
+    # --- Monthly Aggregation ---
     activity_with_duration = activity_raw[(activity_raw['activity_count'] == 0) & activity_raw['durationHours'].notna()].copy()
 
     if not activity_with_duration.empty:
@@ -177,7 +177,7 @@ def get_outings_data():
             outings_monthly['duration_hours_mean'].isna(), np.nan, outings_monthly['duration_hours_sem'].fillna(0)
         )
         outings_monthly['door_failure_days_sum_monthly'] = outings_monthly['door_failure_days_sum_monthly'].fillna(0).astype(int)
-    else: # Handle if outings_monthly became empty after merge (e.g., only failure data with no activity data)
+    else: 
         if not door_failure_monthly_agg.empty:
             outings_monthly = door_failure_monthly_agg.copy()
             outings_monthly['door_failure_days_sum_monthly'] = outings_monthly['door_failure_days_sum_monthly'].fillna(0).astype(int)
@@ -235,8 +235,7 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
                 fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['door_failure_days_sum_monthly'], name="Jours échec porte / mois", yaxis='y2', mode='lines+markers', line=dict(color=DATA3_COLOR, dash='dot')))
             
             y2_max_val = 5 
-            y2_columns_to_check = ['activity_count_sum', 'door_failure_days_sum_monthly'] # Ajout de la nouvelle colonne
-            current_max = 0
+            y2_columns_to_check = ['activity_count_sum', 'door_failure_days_sum_monthly'] 
             for col in y2_columns_to_check:
                 if col in df_monthly.columns and pd.notna(df_monthly[col].max()):
                     current_max = max(current_max, df_monthly[col].max())

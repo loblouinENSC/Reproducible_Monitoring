@@ -9,7 +9,7 @@ TOILET_FAILURE_DAYS_FILE = 'sensors_failure_days/toilet_failure_days.csv'
 APP_TITLE = "Toilet Activity Viewer"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
-DATA1_COLOR = '#36A0EB'
+DATA1_COLOR = '#36A0EB' #blue
 DATA2_COLOR = '#43D37B' # green
 DATA3_COLOR = '#EB9636' # Orange
 FAILURE_MARKER_COLOR = '#F14864' # Rouge
@@ -25,7 +25,7 @@ TITLE_X = 0.06
 TITLE_Y = 0.92
 
 
-# --- Data Loading and Processing Function --- #
+# --- Data Loading and Processing Function --- 
 def get_toilet_data():
     try:
         activity = pd.read_csv(TOILET_LOG_FILE, delimiter=';', decimal=",",
@@ -170,7 +170,7 @@ def get_toilet_data():
              activity_monthly['month_label'] = pd.Series(dtype='str')
         if 'toilet_failure_days_sum' not in activity_monthly.columns:
              activity_monthly['toilet_failure_days_sum'] = 0
-        if 'date' not in activity_monthly.columns: # Ensure date column if fully empty
+        if 'date' not in activity_monthly.columns: 
             activity_monthly['date'] = pd.Series(dtype='datetime64[ns]')
 
 
@@ -209,7 +209,7 @@ def create_toilet_figure(daily_data, monthly_data, daily_failure_markers, scale,
                     line=dict(color=FAILURE_MARKER_COLOR, dash='dot')
                 ))
             
-            y2_max_val = 5 # Default y2 range
+            y2_max_val = 5 
             y2_columns_to_check = ['activity_count_sum', 'activity_count_mean_daily', 'toilet_failure_days_sum']
             current_max = 0
             for col in y2_columns_to_check:

@@ -20,7 +20,7 @@ TITLE_X = 0.06
 TITLE_Y = 0.92
 
 
-# --- Fonction de Chargement et Prétraitement des Données ---
+# --- Data Loading and Processing Function --- 
 def get_sleep_data():
     """Loads and preprocesses sleep and bed failure data."""
     try:
@@ -46,10 +46,10 @@ def get_sleep_data():
     try:
         failure_dates_df = pd.read_csv(
             BED_FAILURE_DAYS_FILE,
-            header=None,         # Indiquer qu'il n'y a pas de ligne d'en-tête
-            names=['date'],      # Nommer la seule colonne 'date'
-            parse_dates=[0],     # Parser la première colonne (index 0) comme des dates
-            comment='#'          # Permet d'ignorer les lignes de commentaire
+            header=None,         
+            names=['date'],      
+            parse_dates=[0],     
+            comment='#'         
         )
         
         # bed_failure_daily_markers sera ce DataFrame directement, après nettoyage des dates non valides.
@@ -74,7 +74,7 @@ def get_sleep_data():
     except Exception as e:
         print(f"Erreur lors du chargement du fichier des jours d'échec du lit '{BED_FAILURE_DAYS_FILE}': {e}")
 
-    # Daily Aggregation (Sleep)
+    # ------Daily Aggregation------
     if not sleep.empty:
         sleep_daily = sleep.resample('D').agg(duration_sum=('durationHr', 'sum')).reset_index()
         sleep_daily['year_month'] = sleep_daily['date'].dt.to_period('M').astype(str)
@@ -83,7 +83,7 @@ def get_sleep_data():
         sleep_daily = sleep_daily.astype({'date': 'datetime64[ns]', 'duration_sum': 'float64', 'year_month': 'object'})
 
 
-    # Monthly Aggregation (Sleep)
+    # -----Monthly Aggregation-----
     if not sleep_daily.empty:
         temp_daily_for_agg = sleep_daily[['date', 'duration_sum']].copy()
         temp_daily_for_agg['duration_sum_for_avg'] = temp_daily_for_agg['duration_sum'].replace(0, np.nan)
@@ -170,7 +170,7 @@ def create_sleep_figure(daily_data, monthly_data, daily_failure_markers, scale, 
             fig.add_trace(go.Bar(x=df_monthly['month_label'], y=df_monthly['duration_mean'], name="Durée moyenne sommeil (h)", error_y=dict(type='data', array=df_monthly['duration_sem']), marker_color=DATA1_COLOR))
             fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['bed_failure_sum'], name="Jours échec lit", yaxis='y2', mode='lines+markers', line=dict(color=DATA2_COLOR, dash='dot')))
             
-            y2_max_range = 5 # Default range for yaxis2 if no data or max is 0
+            y2_max_range = 5
             if pd.notna(df_monthly['bed_failure_sum'].max()) and df_monthly['bed_failure_sum'].max() > 0:
                 y2_max_range = df_monthly['bed_failure_sum'].max() * 1.1
 
@@ -234,7 +234,7 @@ def create_sleep_figure(daily_data, monthly_data, daily_failure_markers, scale, 
     elif scale == 'month' and not selected_month:
         fig.update_layout(title=dict(text="Monthly View: Please select a month"))
 
-    if not fig.data: # Si aucune trace n'a été ajoutée
+    if not fig.data: 
         fig.update_layout(title=dict(text="Aucune donnée à afficher"))
 
     return fig
