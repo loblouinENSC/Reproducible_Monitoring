@@ -5,13 +5,13 @@ import numpy as np
 
 # --- Configuration ---
 OUTINGS_LOG_FILE = 'rule-outing.csv'
-DOOR_FAILURE_LOG_FILE = 'days-door_failure_1week.csv'
+DOOR_FAILURE_DAYS_FILE = 'sensors_failure_days/door_failure_days.csv' 
 APP_TITLE = "Outings Activity Viewer"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
 DATA1_COLOR = '#36A0EB' #bleu
 DATA2_COLOR = '#36EB7B' #vert
-DATA3_COLOR = '#F14864' #rouge
+DATA3_COLOR = '#F14864' #rouge - Utilisé pour les échecs de porte
 
 #--- Graph Configuration ---
 LEGEND = dict(orientation="h",yanchor="bottom",y=1.1,xanchor="center",x=0.5)
@@ -22,189 +22,290 @@ TITLE_Y = 0.92
 
 # --- Data Loading and Processing Function ---
 def get_outings_data():
-    """Loads and preprocesses outings and door failure data."""
     try:
-        activity = pd.read_csv(OUTINGS_LOG_FILE, delimiter=';', decimal=",",
-                               names=["date", "annotation", "activity_count", "duration"],
-                               parse_dates=["date"], index_col="date")
-        # Convert duration from seconds to hours
-        activity['durationMin'] = activity['duration'] / 3600
+        activity_raw = pd.read_csv(OUTINGS_LOG_FILE, delimiter=';', decimal=",",
+                                names=["date", "annotation", "activity_count", "duration"],
+                                parse_dates=["date"], index_col="date")
+        activity_raw['durationHours'] = activity_raw['duration'] / 3600.0
     except FileNotFoundError:
         print(f"Error: '{OUTINGS_LOG_FILE}' not found.")
-        activity = pd.DataFrame(columns=["annotation", "activity_count", "duration", "durationMin"],
-                                index=pd.to_datetime([]))
-        activity.index.name = 'date'
+        activity_raw = pd.DataFrame(columns=["annotation", "activity_count", "duration", "durationHours"],
+                                 index=pd.to_datetime([]))
+        activity_raw.index.name = 'date'
     except Exception as e:
         print(f"Error loading {OUTINGS_LOG_FILE}: {e}")
-        activity = pd.DataFrame(columns=["annotation", "activity_count", "duration", "durationMin"],
-                                index=pd.to_datetime([]))
-        activity.index.name = 'date'
+        activity_raw = pd.DataFrame(columns=["annotation", "activity_count", "duration", "durationHours"],
+                                 index=pd.to_datetime([]))
+        activity_raw.index.name = 'date'
 
+    # --- Chargement des jours de panne de porte ---
+    door_failure_daily_markers = pd.DataFrame(columns=['date'])
+    door_failure_source_for_monthly_agg = pd.DataFrame(columns=['failure_count'], index=pd.to_datetime([]))
+    door_failure_source_for_monthly_agg.index.name = 'date'
     try:
-        door_failure = pd.read_csv(DOOR_FAILURE_LOG_FILE, delimiter=';', decimal=",",
-                                   names=["date", "door_failure"],
-                                   parse_dates=["date"], index_col="date")
-        # Ensure door_failure is numeric, coerce errors to NaN, fill NaN with 0
-        door_failure['door_failure'] = pd.to_numeric(door_failure['door_failure'], errors='coerce').fillna(0)
-        # Filter for actual failures and make a copy for daily markers
-        door_failure_daily_markers = door_failure[door_failure['door_failure'] > 0].copy().reset_index()
+        failure_dates_df = pd.read_csv(
+            DOOR_FAILURE_DAYS_FILE,
+            header=None,
+            names=['date'],
+            parse_dates=[0],
+            comment='#'
+        )
+        door_failure_daily_markers = failure_dates_df[['date']].dropna(subset=['date']).copy()
+        door_failure_daily_markers['date'] = pd.to_datetime(door_failure_daily_markers['date'], errors='coerce')
+        door_failure_daily_markers.dropna(subset=['date'], inplace=True)
 
+        if not door_failure_daily_markers.empty:
+            temp_df_monthly = door_failure_daily_markers.copy()
+            temp_df_monthly['failure_count'] = 1
+            # Ensure 'date' is datetime index for resample
+            door_failure_source_for_monthly_agg = temp_df_monthly.set_index(pd.to_datetime(temp_df_monthly['date']))
+            
     except FileNotFoundError:
-        print(f"Error: '{DOOR_FAILURE_LOG_FILE}' not found.")
-        door_failure = pd.DataFrame(columns=["door_failure"], index=pd.to_datetime([]))
-        door_failure.index.name = 'date'
-        door_failure_daily_markers = pd.DataFrame(columns=['date', 'door_failure'])
+        print(f"Avertissement : Fichier '{DOOR_FAILURE_DAYS_FILE}' non trouvé.")
+    except pd.errors.EmptyDataError:
+        print(f"Avertissement : Fichier '{DOOR_FAILURE_DAYS_FILE}' est vide.")
     except Exception as e:
-        print(f"Error loading {DOOR_FAILURE_LOG_FILE}: {e}")
-        door_failure = pd.DataFrame(columns=["door_failure"], index=pd.to_datetime([]))
-        door_failure.index.name = 'date'
-        door_failure_daily_markers = pd.DataFrame(columns=['date', 'door_failure'])
+        print(f"Erreur lors du chargement de '{DOOR_FAILURE_DAYS_FILE}': {e}")
+
+    # --- Daily Aggregation with Duration Spreading ---
+    outings_daily_new = pd.DataFrame(columns=['date', 'duration_hours_sum', 'activity_count_sum', 'year_month'])
+    outings_daily_new = outings_daily_new.astype({
+        'date': 'datetime64[ns]', 'duration_hours_sum': 'float64',
+        'activity_count_sum': 'int64', 'year_month': 'object'
+    })
+
+    if not activity_raw.empty:
+        activity_sorted = activity_raw.sort_index()
+        processed_outings = []
+        current_outing_start_info = None
+
+        for index_ts, row in activity_sorted.iterrows():
+            if row['activity_count'] == 1:
+                current_outing_start_info = {'start_ts': index_ts}
+            elif row['activity_count'] == 0 and current_outing_start_info is not None:
+                start_ts = current_outing_start_info['start_ts']
+                end_ts = index_ts
+                if pd.notna(row['durationHours']) and row['durationHours'] > 0:
+                     processed_outings.append({'start_ts': start_ts, 'end_ts': end_ts})
+                current_outing_start_info = None
+        
+        min_date_overall_activity = activity_sorted.index.min().normalize() if not activity_sorted.index.empty else None
+        max_date_overall_activity = activity_sorted.index.max().normalize() if not activity_sorted.index.empty else None
+        
+        min_date_overall_failure = door_failure_daily_markers['date'].min().normalize() if not door_failure_daily_markers.empty else None
+        max_date_overall_failure = door_failure_daily_markers['date'].max().normalize() if not door_failure_daily_markers.empty else None
+
+        all_min_dates = [d for d in [min_date_overall_activity, min_date_overall_failure] if pd.notna(d)]
+        all_max_dates = [d for d in [max_date_overall_activity, max_date_overall_failure] if pd.notna(d)]
+
+        min_date_overall = min(all_min_dates) if all_min_dates else pd.Timestamp.now().normalize()
+        max_date_overall = max(all_max_dates) if all_max_dates else pd.Timestamp.now().normalize()
 
 
-    # Daily Aggregation (Outings)
-    if not activity.empty:
-        outings_daily = activity.resample('D').agg(
-            activity_count_sum=('activity_count', 'sum'),
-            duration_min_sum=('durationMin', 'sum'), # Sum of durations for the day
-            duration_min_mean=('durationMin', 'mean'), # Mean duration of individual outings
-            duration_min_sem=('durationMin', 'sem')    # SEM of individual outings
-        ).reset_index()
-        outings_daily['year_month'] = outings_daily['date'].dt.to_period('M').astype(str)
-    else:
-        outings_daily = pd.DataFrame(columns=['date', 'activity_count_sum', 'duration_min_sum', 'duration_min_mean', 'duration_min_sem', 'year_month'])
+        if pd.notna(min_date_overall) and pd.notna(max_date_overall):
+            all_days_idx = pd.date_range(start=min_date_overall, end=max_date_overall, freq='D')
+            daily_hours_sum = pd.Series(0.0, index=all_days_idx)
+            daily_completed_outings_count = pd.Series(0, index=all_days_idx)
+
+            if processed_outings:
+                for outing in processed_outings:
+                    start_actual_ts = outing['start_ts']
+                    end_actual_ts = outing['end_ts']
+                    day_of_completion = end_actual_ts.normalize()
+                    if day_of_completion in daily_completed_outings_count.index:
+                        daily_completed_outings_count[day_of_completion] += 1
+                    
+                    current_day_processing_norm = start_actual_ts.normalize()
+                    while current_day_processing_norm <= end_actual_ts.normalize():
+                        day_loop_start_ts = current_day_processing_norm
+                        day_loop_end_ts = day_loop_start_ts + pd.Timedelta(days=1)
+                        segment_start = max(start_actual_ts, day_loop_start_ts)
+                        segment_end = min(end_actual_ts, day_loop_end_ts)
+                        duration_in_day_hours = 0.0
+                        if segment_end > segment_start:
+                            duration_in_day_hours = (segment_end - segment_start).total_seconds() / 3600.0
+                        if day_loop_start_ts in daily_hours_sum.index:
+                            daily_hours_sum[day_loop_start_ts] += duration_in_day_hours
+                            if daily_hours_sum[day_loop_start_ts] > 24.0:
+                                daily_hours_sum[day_loop_start_ts] = 24.0
+                        current_day_processing_norm += pd.Timedelta(days=1)
+                        if current_day_processing_norm > end_actual_ts.normalize() + pd.Timedelta(days=2) and duration_in_day_hours <=0:
+                            break
+            
+            if 'daily_hours_sum' in locals() and not daily_hours_sum.empty :
+                outings_daily_new = pd.DataFrame({
+                    'date': daily_hours_sum.index,
+                    'duration_hours_sum': daily_hours_sum.values,
+                    'activity_count_sum': daily_completed_outings_count.reindex(daily_hours_sum.index, fill_value=0).values
+                })
+                outings_daily_new['year_month'] = outings_daily_new['date'].dt.to_period('M').astype(str)
 
 
-      # Agrégation Mensuelle (Sorties & Échecs de Porte)
-    if not activity.empty:
-        outings_monthly_agg = activity.resample('ME').agg(
-            activity_count_sum=('activity_count', 'sum'),
-            duration_min_mean=('durationMin', 'mean'), # Durée moyenne des sorties dans le mois
-            duration_min_sem=('durationMin', 'sem')    # SEM des durées de sortie dans le mois
+    # --- Monthly Aggregation (Sorties & Échecs de Porte) ---
+    activity_with_duration = activity_raw[(activity_raw['activity_count'] == 0) & activity_raw['durationHours'].notna()].copy()
+
+    if not activity_with_duration.empty:
+        outings_monthly_agg = activity_with_duration.resample('ME').agg(
+            activity_count_sum=('activity_count', 'size'), 
+            duration_hours_mean=('durationHours', 'mean'),
+            duration_hours_sem=('durationHours', 'sem')
         )
     else:
-        outings_monthly_agg = pd.DataFrame(columns=['activity_count_sum', 'duration_min_mean', 'duration_min_sem'], index=pd.to_datetime([]))
+        outings_monthly_agg = pd.DataFrame(columns=['activity_count_sum', 'duration_hours_mean', 'duration_hours_sem'],
+                                           index=pd.to_datetime([]))
         outings_monthly_agg.index.name = 'date'
 
-    if not door_failure.empty:
-        door_failure_monthly_agg = door_failure.fillna(0).resample('ME').agg(
-            door_failure_day_count=('door_failure', lambda x: (x > 0).sum()) # Compte les jours avec échec
-         )
-    else:
-        door_failure_monthly_agg = pd.DataFrame(columns=['door_failure_day_count'], index=pd.to_datetime([]))
-        door_failure_monthly_agg.index.name = 'date'
-
+    door_failure_monthly_agg = pd.DataFrame(columns=['door_failure_days_sum_monthly'], index=pd.to_datetime([]))
+    door_failure_monthly_agg.index.name = 'date'
+    if not door_failure_source_for_monthly_agg.empty and 'failure_count' in door_failure_source_for_monthly_agg.columns:
+        door_failure_monthly_agg = door_failure_source_for_monthly_agg.resample('ME').agg(
+            door_failure_days_sum_monthly=('failure_count', 'sum')
+        )
+    
     outings_monthly = pd.merge(outings_monthly_agg, door_failure_monthly_agg, left_index=True, right_index=True, how='outer')
+    
     if not outings_monthly.empty:
-        start_date, end_date = outings_monthly.index.min(), outings_monthly.index.max()
-        if pd.notna(start_date) and pd.notna(end_date):
-            full_idx = pd.date_range(start=start_date, end=end_date, freq='ME')
-            outings_monthly = outings_monthly.reindex(full_idx)
-        # Remplit les NaN après réindexation
-        outings_monthly['activity_count_sum'] = outings_monthly['activity_count_sum'].fillna(0)
-        outings_monthly['duration_min_mean'] = outings_monthly['duration_min_mean'].fillna(np.nan)
-        outings_monthly['duration_min_sem'] = outings_monthly['duration_min_sem'].fillna(0)
-        outings_monthly['door_failure_day_count'] = outings_monthly['door_failure_day_count'].fillna(0)
+        outings_monthly.index = pd.to_datetime(outings_monthly.index)
+        start_date_monthly, end_date_monthly = outings_monthly.index.min(), outings_monthly.index.max()
+        if pd.notna(start_date_monthly) and pd.notna(end_date_monthly):
+            full_idx_monthly = pd.date_range(start=start_date_monthly, end=end_date_monthly, freq='ME')
+            outings_monthly = outings_monthly.reindex(full_idx_monthly)
+        
+        outings_monthly['activity_count_sum'] = outings_monthly['activity_count_sum'].fillna(0).astype(int)
+        outings_monthly['duration_hours_mean'] = outings_monthly['duration_hours_mean'].fillna(np.nan)
+        outings_monthly['duration_hours_sem'] = np.where(
+            outings_monthly['duration_hours_mean'].isna(), np.nan, outings_monthly['duration_hours_sem'].fillna(0)
+        )
+        outings_monthly['door_failure_days_sum_monthly'] = outings_monthly['door_failure_days_sum_monthly'].fillna(0).astype(int)
+    else: # Handle if outings_monthly became empty after merge (e.g., only failure data with no activity data)
+        if not door_failure_monthly_agg.empty:
+            outings_monthly = door_failure_monthly_agg.copy()
+            outings_monthly['door_failure_days_sum_monthly'] = outings_monthly['door_failure_days_sum_monthly'].fillna(0).astype(int)
+            for col in ['activity_count_sum', 'duration_hours_mean', 'duration_hours_sem']:
+                 if col not in outings_monthly.columns: outings_monthly[col] = np.nan if 'mean' in col or 'sem' in col else 0
+
 
     outings_monthly = outings_monthly.reset_index().rename(columns={'index': 'date'})
-    # Crée les libellés de mois pour l'axe x en vue annuelle avec le format MM/YY
-    if 'date' in outings_monthly.columns and pd.api.types.is_datetime64_any_dtype(outings_monthly['date']):
-        outings_monthly['month_label'] = outings_monthly['date'].dt.strftime('%m/%y') # Format MM/YY
+    
+    if 'date' in outings_monthly.columns and not outings_monthly.empty:
+        valid_dates_monthly = outings_monthly['date'].notna()
+        outings_monthly['month_label'] = ''
+        if valid_dates_monthly.any():
+            outings_monthly.loc[valid_dates_monthly, 'month_label'] = outings_monthly.loc[valid_dates_monthly, 'date'].dt.strftime('%m/%y')
     else:
         outings_monthly['month_label'] = ''
+        if 'door_failure_days_sum_monthly' not in outings_monthly.columns : outings_monthly['door_failure_days_sum_monthly'] = 0
+        if 'date' not in outings_monthly.columns: outings_monthly['date'] = pd.Series(dtype='datetime64[ns]')
 
 
-    # Ajoute year_month aux marqueurs quotidiens d'échec de porte pour filtrage dans la fonction de figure
     if not door_failure_daily_markers.empty and 'date' in door_failure_daily_markers.columns:
-        if pd.api.types.is_datetime64_any_dtype(door_failure_daily_markers['date']):
+        if not door_failure_daily_markers.empty:
             door_failure_daily_markers['year_month'] = door_failure_daily_markers['date'].dt.to_period('M').astype(str)
         else:
-            door_failure_daily_markers['date'] = pd.to_datetime(door_failure_daily_markers['date'], errors='coerce')
-            door_failure_daily_markers.dropna(subset=['date'], inplace=True)
-            if not door_failure_daily_markers.empty:
-                door_failure_daily_markers['year_month'] = door_failure_daily_markers['date'].dt.to_period('M').astype(str)
+            if 'year_month' not in door_failure_daily_markers.columns:
+                 door_failure_daily_markers['year_month'] = pd.Series(dtype='str')
+    else:
+        if 'year_month' not in door_failure_daily_markers.columns:
+             door_failure_daily_markers['year_month'] = pd.Series(dtype='str')
 
-    return outings_daily, outings_monthly, door_failure_daily_markers
+    return outings_daily_new, outings_monthly, door_failure_daily_markers
 
 
 # --- Figure Creation Function ---
 def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale, selected_month):
-    """Creates the Plotly figure for outings activity."""
     fig = go.Figure()
     fig.update_layout(
-        template='plotly_dark',
-        paper_bgcolor=BACKGROUND_COLOR,
-        plot_bgcolor=BACKGROUND_COLOR,
-        font=dict(color=TEXT_COLOR),
-        title=dict(font=dict(color=TEXT_COLOR)),
+        template='plotly_dark', paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=BACKGROUND_COLOR,
+        font=dict(color=TEXT_COLOR), title=dict(font=dict(color=TEXT_COLOR)),
         legend=dict(font=dict(color=TEXT_COLOR)),
         xaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
         yaxis2=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)', overlaying='y', side='right'),
         margin=MARGIN_CHART,
-        hoverlabel=dict(  # Configuration de l'infobulle (tooltip)
-            font_size=16,
-            font_color="white",
-            namelength=-1 # Affiche le nom complet de la trace
-        )
+        hoverlabel=dict(font_size=16, font_color="white", namelength=-1)
     )
 
     if scale == 'year':
-        df = monthly_data
-        if not df.empty:
-            # Y1: Average duration of outings
-            fig.add_trace(go.Bar(x=df['month_label'], y=df['duration_min_mean'], name="Durée moy. sortie (heures)", error_y=dict(type='data', array=df['duration_min_sem']),marker_color=DATA1_COLOR))
-            # Y2: Number of outings
-            fig.add_trace(go.Scatter(x=df['month_label'],y=df['activity_count_sum'],name="Nb. sorties / mois",yaxis='y2', mode='lines+markers',line=dict(color=DATA2_COLOR)))
-            # Y2: Door failure days
-            if 'door_failure_day_count' in df.columns:
-                fig.add_trace(go.Scatter(x=df['month_label'],y=df['door_failure_day_count'],name="Jours échec porte / mois", yaxis='y2', mode='lines+markers',line=dict(color=DATA3_COLOR, dash='dot')))
+        df_monthly = monthly_data
+        if not df_monthly.empty:
+            fig.add_trace(go.Bar(x=df_monthly['month_label'], y=df_monthly['duration_hours_mean'], name="Durée moy. sortie (heures)", error_y=dict(type='data', array=df_monthly['duration_hours_sem']), marker_color=DATA1_COLOR))
+            fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['activity_count_sum'], name="Nb. sorties / mois", yaxis='y2', mode='lines+markers', line=dict(color=DATA2_COLOR)))
+            
+            if 'door_failure_days_sum_monthly' in df_monthly.columns: # Modifié pour utiliser le nouveau nom de colonne
+                fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['door_failure_days_sum_monthly'], name="Jours échec porte / mois", yaxis='y2', mode='lines+markers', line=dict(color=DATA3_COLOR, dash='dot')))
+            
+            y2_max_val = 5 
+            y2_columns_to_check = ['activity_count_sum', 'door_failure_days_sum_monthly'] # Ajout de la nouvelle colonne
+            current_max = 0
+            for col in y2_columns_to_check:
+                if col in df_monthly.columns and pd.notna(df_monthly[col].max()):
+                    current_max = max(current_max, df_monthly[col].max())
+            if current_max > 0:
+                y2_max_val = current_max * 1.1
+
             fig.update_layout(
-                title=dict(text="Activité Sorties : Vue Annuelle (Mensuelle)", font=dict(color=TEXT_COLOR), x=TITLE_X, y=TITLE_Y),
-                xaxis=dict(title=dict(text="Mois", font=dict(color=TEXT_COLOR))),
-                yaxis=dict(title=dict(text="Durée moyenne sortie (heures)", font=dict(color=DATA1_COLOR)), tickfont=dict(color=DATA1_COLOR)),
-                yaxis2=dict(title=dict(text="Nombre", font=dict(color=DATA2_COLOR)), tickfont=dict(color=DATA2_COLOR), showgrid=False),
+                title=dict(text="Activité Sorties : Vue Annuelle (Mensuelle)", x=TITLE_X, y=TITLE_Y),
+                xaxis=dict(title=dict(text="Mois")),
+                yaxis=dict(title=dict(text="Durée moyenne sortie (heures)"), tickfont=dict(color=DATA1_COLOR)),
+                yaxis2=dict(title=dict(text="Comptes"), tickfont=dict(color=DATA3_COLOR), showgrid=False, range=[0,y2_max_val]), 
                 legend=LEGEND
             )
         else:
-            fig.update_layout(title=dict(text="Outings: No yearly data available", font=dict(color=TEXT_COLOR)))
+            fig.update_layout(title=dict(text="Outings: No yearly data available"))
 
     elif scale == 'month' and selected_month:
-        df = daily_data[daily_data['year_month'] == selected_month]
+        df_daily_activity = daily_data[daily_data['year_month'] == selected_month] if not daily_data.empty else pd.DataFrame()
 
-        df_daily_fail_markers = pd.DataFrame() # Initialize empty
+        df_daily_failure_filtered = pd.DataFrame()
         if not daily_failure_markers.empty and 'year_month' in daily_failure_markers.columns:
-             df_daily_fail_markers = daily_failure_markers[daily_failure_markers['year_month'] == selected_month]
+            filtered_failures = daily_failure_markers[daily_failure_markers['year_month'] == selected_month]
+            if not filtered_failures.empty:
+                df_daily_failure_filtered = filtered_failures
+        
+        all_relevant_dates = []
+        if not df_daily_activity.empty: all_relevant_dates.extend(df_daily_activity['date'].tolist())
+        if not df_daily_failure_filtered.empty: all_relevant_dates.extend(df_daily_failure_filtered['date'].tolist())
+        
+        unique_display_dates = sorted(list(set(all_relevant_dates))) if all_relevant_dates else []
 
-        if not df.empty:
-            # Y1: Number of outings per day
-            fig.add_trace(go.Bar(x=df['date'], y=df['duration_min_sum'], name="Durée totale sorties / jour (heures)", marker_color=DATA1_COLOR))
-
-            fig.add_trace(go.Scatter( x=df['date'], y=df['activity_count_sum'], name="Nb. sorties / jour", yaxis='y2', mode='lines', line=dict(color=DATA2_COLOR)))
+        if not df_daily_activity.empty:
+            fig.add_trace(go.Bar(x=df_daily_activity['date'], y=df_daily_activity['duration_hours_sum'], name="Temps dehors / jour (heures)", marker_color=DATA1_COLOR))
+            fig.add_trace(go.Scatter(x=df_daily_activity['date'], y=df_daily_activity['activity_count_sum'], name="Nb. sorties terminées / jour", yaxis='y2', mode='lines', line=dict(color=DATA2_COLOR)))
             
-            # Markers for door failure days
-            if not df_daily_fail_markers.empty:
-                fig.add_trace(go.Scatter( x=df_daily_fail_markers['date'], y=[0.1] * len(df_daily_fail_markers), name="Échec porte", mode='markers', marker=dict(color=DATA3_COLOR, size=10, symbol='x'), yaxis='y1'))
-
+        if not df_daily_failure_filtered.empty:
+            fig.add_trace(go.Scatter(x=df_daily_failure_filtered['date'], y=[0.3] * len(df_daily_failure_filtered), name="Échec porte", mode='markers', marker=dict(color=DATA3_COLOR, size=10, symbol='x'), yaxis='y1'))
+        
+        if not df_daily_activity.empty or not df_daily_failure_filtered.empty:
             fig.update_layout(
-                title=dict(text=f"Activité Sorties : Vue Journalière - {selected_month}", font=dict(color=TEXT_COLOR), x=TITLE_X, y=TITLE_Y),
-                xaxis=dict(title=dict(text="Jour", font=dict(color=TEXT_COLOR)), tickformat='%d',tickmode='array', tickvals=df['date'], ticktext=df['date'].dt.strftime('%d'), dtick="D1"),
-                yaxis=dict(title=dict(text="Durée totale sorties / jour (heures))", font=dict(color=DATA1_COLOR)), tickfont=dict(color=DATA1_COLOR)),
-                yaxis2=dict(title=dict(text="Nb. sorties / jour", font=dict(color=DATA2_COLOR)), tickfont=dict(color=DATA2_COLOR), showgrid=False),
+                title=dict(text=f"Activité Sorties : Vue Journalière - {selected_month}", x=TITLE_X, y=TITLE_Y),
+                xaxis=dict(title=dict(text="Jour"), tickformat='%d', tickmode='array', tickvals=unique_display_dates, ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else [], dtick="D1" if not unique_display_dates else None),
+                yaxis=dict(title=dict(text="Temps dehors / jour (heures)"), range=[0, 24.5]),
+                yaxis2=dict(title=dict(text="Nb. sorties terminées"), range=[0, 3], showgrid=False),
                 legend=LEGEND
             )
         else:
-            fig.update_layout(title=dict(text=f"Outings: No daily data for {selected_month}", font=dict(color=TEXT_COLOR)))
+            fig.update_layout(title=dict(text=f"Outings: No daily data or door failures for {selected_month}"))
+            
     elif scale == 'month' and not selected_month:
-        fig.update_layout(title=dict(text="Outings: Please select a month", font=dict(color=TEXT_COLOR)))
+        fig.update_layout(title=dict(text="Outings: Please select a month"))
 
     if not fig.data:
-        fig.update_layout(title=dict(text="Aucune donnée à afficher", font=dict(color=TEXT_COLOR)))
+        fig.update_layout(title=dict(text="Aucune donnée à afficher"))
     return fig
 
 # --- Standalone App Execution ---
 if __name__ == '__main__':
-    outings_daily_data, outings_monthly_data, door_failure_daily_markers_data = get_outings_data()
-    available_months = sorted(outings_daily_data['year_month'].unique()) if not outings_daily_data.empty else []
+    outings_daily_data, outings_monthly_data, door_failure_markers_data = get_outings_data()
+    
+    available_months = []
+    temp_months_set = set()
+    if not outings_daily_data.empty and 'year_month' in outings_daily_data.columns:
+        temp_months_set.update(outings_daily_data['year_month'].dropna().unique())
+    if not door_failure_markers_data.empty and 'year_month' in door_failure_markers_data.columns:
+        temp_months_set.update(door_failure_markers_data['year_month'].dropna().unique())
+    
+    if temp_months_set:
+        available_months = sorted(list(temp_months_set))
 
     app = Dash(__name__)
     app.title = APP_TITLE
@@ -239,6 +340,6 @@ if __name__ == '__main__':
 
     @app.callback(Output('outings-activity-graph', 'figure'), Input('scale-selector-outings', 'value'), Input('month-dropdown-outings', 'value'))
     def update_graph_standalone_outings(scale, selected_month):
-        return create_outings_figure(outings_daily_data, outings_monthly_data, door_failure_daily_markers_data, scale, selected_month)
+        return create_outings_figure(outings_daily_data, outings_monthly_data, door_failure_markers_data, scale, selected_month)
 
     app.run(debug=True)

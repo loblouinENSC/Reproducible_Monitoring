@@ -1,16 +1,16 @@
 import pandas as pd
 import plotly.graph_objs as go
-from dash import Dash, dcc, html, Input, Output, State
+from dash import Dash, dcc, html, Input, Output
 import numpy as np
 
 # --- Import functions from the refactored visualization scripts ---
-# Ensure these files are in the same directory or accessible via Python's path
 try:
     from visualize_toilet_new import get_toilet_data, create_toilet_figure
     print("Successfully imported toilet functions.")
 except ImportError as e:
     print(f"Error importing from visualize_toilet_new.py: {e}")
-    def get_toilet_data(): return pd.DataFrame(), pd.DataFrame()
+    # Fournir des stubs qui retournent le bon nombre d'éléments attendus
+    def get_toilet_data(): return pd.DataFrame(), pd.DataFrame(), pd.DataFrame() 
     def create_toilet_figure(*args): return go.Figure().update_layout(title_text="Error loading toilet module")
 
 try:
@@ -22,33 +22,33 @@ except ImportError as e:
     def create_sleep_figure(*args): return go.Figure().update_layout(title_text="Error loading sleep module")
 
 try:
-    # Corrected import name if your file is visualize_outings_new.py
     from visualize_outing_new import get_outings_data, create_outings_figure
     print("Successfully imported outings functions.")
 except ImportError as e:
-    print(f"Error importing from visualize_outings_new.py: {e}") # Corrected filename in error message
+    print(f"Error importing from visualize_outing_new.py: {e}")
     def get_outings_data(): return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     def create_outings_figure(*args): return go.Figure().update_layout(title_text="Error loading outings module")
 
 
 # --- Configuration Globale ---
-# These Python variables are still useful for Plotly figure styling within create_..._figure functions
-# and for fallback styles if CSS doesn't load, but primary styling is now in CSS.
-TEXT_COLOR_PY = 'white'
-BACKGROUND_COLOR_PY = '#111111' 
+TEXT_COLOR = 'white'
+BACKGROUND_COLOR = '#111111'
 
 TOILET_APP_NAME = "Toilet Activity"
 SLEEP_APP_NAME = "Sleep Activity"
 OUTINGS_APP_NAME = "Outings Activity"
 
-# --- Chargement Initial des Données (using imported functions) ---
+# --- Chargement Initial des Données ---
 print("Loading initial data...")
 try:
-    toilet_daily_data, toilet_monthly_data = get_toilet_data()
-    print(f"Toilet data loaded: Daily shape={toilet_daily_data.shape}, Monthly shape={toilet_monthly_data.shape}")
+    toilet_daily_data, toilet_monthly_data, toilet_failure_daily_markers = get_toilet_data()
+    print(f"Toilet data loaded: Daily shape={toilet_daily_data.shape}, Monthly shape={toilet_monthly_data.shape}, Toilet Failures shape={toilet_failure_daily_markers.shape}")
+except ValueError as ve: 
+    print(f"Error unpacking data from get_toilet_data (expected 3 values, check visualize_toilet_new.py): {ve}")
+    toilet_daily_data, toilet_monthly_data, toilet_failure_daily_markers = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 except Exception as e:
     print(f"Error running get_toilet_data: {e}")
-    toilet_daily_data, toilet_monthly_data = pd.DataFrame(), pd.DataFrame()
+    toilet_daily_data, toilet_monthly_data, toilet_failure_daily_markers = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 try:
     sleep_daily_data, sleep_monthly_data, sleep_bed_failure_daily_markers = get_sleep_data()
@@ -67,115 +67,99 @@ except Exception as e:
 print("Initial data loading complete.")
 
 # --- Initialisation de l'App Dash ---
-# Dash automatically includes CSS files from the 'assets' folder if it exists.
 app = Dash(__name__)
 app.title = "Activity Dashboard Manager"
 
 # --- Définition du Layout de l'App ---
-app.layout = html.Div(id="app-container", children=[ 
-
+app.layout = html.Div(id="app-container", children=[
     html.H2(app.title, id="app-title"),
-
-    #block des controles
     html.Div(id="control-container", children=[
-
-            # Sélecteur d'Activité
-            html.Div(className='selector', children=[
-            
-                html.Label("Activity :"), 
-                dcc.Dropdown(
-                    id='activity-type-selector', 
-                    options=[
-                        {'label': TOILET_APP_NAME, 'value': 'toilet'},
-                        {'label': SLEEP_APP_NAME, 'value': 'sleep'},
-                        {'label': OUTINGS_APP_NAME, 'value': 'outings'}
-                    ],
-                    value='toilet',
-                    clearable=False,
-                    className='dash-dropdown' 
-                ),
-            ]),
-
-            html.Div(className='selector', children=[
-            
-               html.Label("View scale :"), 
-                dcc.RadioItems(
-                    id='scale-selector',
-                    options=[
-                        {'label': 'Year View (Monthly)', 'value': 'year'},
-                        {'label': 'Month View (Daily)', 'value': 'month'}
-                    ],
-                    value='year',
-                    # labelStyle and inputStyle are often kept for dcc components
-                    # as they target specific sub-elements not easily reachable by general CSS.
-                    labelStyle={'display': 'inline-block', 'marginRight': '22px', 'color': TEXT_COLOR_PY}, #
-                    inputStyle={'marginRight': '5px'}
-                    # Removed inline style from the parent Div
-                ),
-            ]),
-       
-            # Conteneur pour le Menu Déroulant des Mois
-            html.Div(id='month-dropdown-container', className='selector', children=[ 
-
-                html.Label(""), #Select Month: 
-                dcc.Dropdown(
-                    id='month-dropdown',
-                    clearable=False,
-                    className='dash-dropdown' # General class for dropdowns
-                )
-
-            ], style={'display': 'none'}), # Dynamic display style remains controlled by callback
-
-         
+        html.Div(className='selector', children=[
+            html.Label("Activity :"),
+            dcc.Dropdown(
+                id='activity-type-selector',
+                options=[
+                    {'label': TOILET_APP_NAME, 'value': 'toilet'},
+                    {'label': SLEEP_APP_NAME, 'value': 'sleep'},
+                    {'label': OUTINGS_APP_NAME, 'value': 'outings'}
+                ],
+                value='toilet', 
+                clearable=False,
+                className='dash-dropdown'
+            ),
+        ]),
+        html.Div(className='selector', children=[
+            html.Label("View scale :"),
+            dcc.RadioItems(
+                id='scale-selector',
+                options=[
+                    {'label': 'Year View (Monthly)', 'value': 'year'},
+                    {'label': 'Month View (Daily)', 'value': 'month'}
+                ],
+                value='year', 
+                labelStyle={'display': 'inline-block', 'marginRight': '22px', 'color': TEXT_COLOR},
+                inputStyle={'marginRight': '5px'}
+            ),
+        ]),
+        html.Div(id='month-dropdown-container', className='selector', children=[
+            html.Label(""),
+            dcc.Dropdown(
+                id='month-dropdown',
+                clearable=False,
+                className='dash-dropdown'
+            )
+        ], style={'display': 'none'}),
     ]),
-
-    # Graphique
-    dcc.Graph(id='activity-graph') 
+    dcc.Graph(id='activity-graph')
 ])
 
 # --- Callbacks ---
-
-# Callback pour afficher/cacher le menu déroulant des mois
 @app.callback(
     Output('month-dropdown-container', 'style'),
     Input('scale-selector', 'value')
 )
 def toggle_month_dropdown_visibility(scale):
-    """Shows/hides the month dropdown based on the selected scale."""
-    # Only control the display property dynamically. Other styles are in CSS.
     if scale == 'month':
-        return {'display': 'flex'} 
+        return {'display': 'flex'}
     else:
         return {'display': 'none'}
 
-
-# Callback pour mettre à jour les options du menu déroulant des mois
 @app.callback(
     Output('month-dropdown', 'options'),
     Output('month-dropdown', 'value'),
     Input('activity-type-selector', 'value')
 )
 def update_month_dropdown_options(selected_activity_type):
-    """Updates the month dropdown options and value based on the selected activity."""
     options = []
     value = None
-    df_daily_source = pd.DataFrame()
+    df_daily_for_months = pd.DataFrame()
+    df_failure_for_months = pd.DataFrame() 
 
     if selected_activity_type == 'toilet':
-        df_daily_source = toilet_daily_data
+        df_daily_for_months = toilet_daily_data
+        df_failure_for_months = toilet_failure_daily_markers 
     elif selected_activity_type == 'sleep':
-        df_daily_source = sleep_daily_data
+        df_daily_for_months = sleep_daily_data
+        df_failure_for_months = sleep_bed_failure_daily_markers
     elif selected_activity_type == 'outings':
-        df_daily_source = outings_daily_data
+        df_daily_for_months = outings_daily_data
+        df_failure_for_months = outings_door_failure_daily_markers
 
-    if not df_daily_source.empty and 'year_month' in df_daily_source.columns:
-        available_months = sorted(df_daily_source['year_month'].unique())
-        options = [{'label': m, 'value': m} for m in available_months]
-        if available_months:
-            value = available_months[0]
+    available_months_set = set()
+    if not df_daily_for_months.empty and 'year_month' in df_daily_for_months.columns:
+        available_months_set.update(df_daily_for_months['year_month'].dropna().unique())
+    
+    if not df_failure_for_months.empty and 'year_month' in df_failure_for_months.columns:
+        available_months_set.update(df_failure_for_months['year_month'].dropna().unique())
+
+    if available_months_set:
+        available_months_sorted = sorted(list(available_months_set))
+        options = [{'label': m, 'value': m} for m in available_months_sorted]
+        if available_months_sorted:
+            value = available_months_sorted[0] # Sélectionner le premier mois par défaut
     return options, value
 
-# Callback principal pour mettre à jour le graphique (using imported functions)
+
 @app.callback(
     Output('activity-graph', 'figure'),
     Input('activity-type-selector', 'value'),
@@ -183,45 +167,51 @@ def update_month_dropdown_options(selected_activity_type):
     Input('month-dropdown', 'value')
 )
 def update_main_graph(activity_type, scale, selected_month):
-    """Updates the main graph by calling the appropriate figure creation function."""
     fig = go.Figure()
-
     try:
         if activity_type == 'toilet':
-            fig = create_toilet_figure(toilet_daily_data, toilet_monthly_data, scale, selected_month)
+      
+            fig = create_toilet_figure(
+                toilet_daily_data,
+                toilet_monthly_data,
+                toilet_failure_daily_markers, 
+                scale,
+                selected_month
+            )
         elif activity_type == 'sleep':
-            fig = create_sleep_figure(sleep_daily_data, sleep_monthly_data, sleep_bed_failure_daily_markers, scale, selected_month)
+            fig = create_sleep_figure(
+                sleep_daily_data,
+                sleep_monthly_data,
+                sleep_bed_failure_daily_markers,
+                scale,
+                selected_month
+            )
         elif activity_type == 'outings':
-            fig = create_outings_figure(outings_daily_data, outings_monthly_data, outings_door_failure_daily_markers, scale, selected_month)
+            fig = create_outings_figure(
+                outings_daily_data,
+                outings_monthly_data,
+                outings_door_failure_daily_markers, 
+                scale,
+                selected_month
+            )
         else:
-             fig.update_layout(title=dict(text="Select an activity type", font=dict(color=TEXT_COLOR_PY)))
-
-        # The create_..._figure functions should handle their specific Plotly templates and colors.
-        # We ensure the general background from CSS is respected by Plotly if not overridden.
-        # fig.update_layout( # This might override specific styling from create_..._figure if not careful
-        #     template='plotly_dark', # This is good, but create_..._figure should also set it
-        #     paper_bgcolor=BACKGROUND_COLOR_PY, # Set by create_..._figure
-        #     plot_bgcolor=BACKGROUND_COLOR_PY   # Set by create_..._figure
-        # )
-
+            fig.update_layout(title=dict(text="Select an activity type", font=dict(color=TEXT_COLOR)))
     except Exception as e:
         print(f"Error creating figure for {activity_type}: {e}")
+        # Afficher une figure d'erreur si la création du graphique échoue
         fig = go.Figure()
         fig.update_layout(
-            template='plotly_dark',
-            paper_bgcolor=BACKGROUND_COLOR_PY,
-            plot_bgcolor=BACKGROUND_COLOR_PY,
-            font=dict(color=TEXT_COLOR_PY),
-            title=dict(text=f"Error generating graph for {activity_type}", font=dict(color='red'))
+            template='plotly_dark', paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=BACKGROUND_COLOR,
+            font=dict(color=TEXT_COLOR),
+            title=dict(text=f"Error generating graph for {activity_type}: Check console", font=dict(color='red'))
         )
 
+    # Assurer un état par défaut si aucune donnée n'est tracée et aucun titre d'erreur n'est défini
     if not fig.data and (not fig.layout or not fig.layout.title or not fig.layout.title.text):
-         fig.update_layout(
-             template='plotly_dark',
-             paper_bgcolor=BACKGROUND_COLOR_PY,
-             plot_bgcolor=BACKGROUND_COLOR_PY,
-             font=dict(color=TEXT_COLOR_PY),
-             title=dict(text="Veuillez sélectionner une activité et une échelle.", font=dict(color=TEXT_COLOR_PY))
+        fig.update_layout(
+            template='plotly_dark', paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=BACKGROUND_COLOR,
+            font=dict(color=TEXT_COLOR),
+            title=dict(text="Veuillez sélectionner une activité et une échelle.", font=dict(color=TEXT_COLOR))
         )
     return fig
 
