@@ -236,6 +236,7 @@ def create_outings_figure(daily_data, monthly_data, daily_failure_markers, scale
             
             y2_max_val = 5 
             y2_columns_to_check = ['activity_count_sum', 'door_failure_days_sum_monthly'] 
+            current_max = 0
             for col in y2_columns_to_check:
                 if col in df_monthly.columns and pd.notna(df_monthly[col].max()):
                     current_max = max(current_max, df_monthly[col].max())
