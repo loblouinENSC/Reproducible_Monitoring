@@ -2,7 +2,8 @@ import pandas as pd
 import plotly.graph_objs as go
 from dash import Dash, dcc, html, Input, Output
 import numpy as np
-from datetime import datetime as dt_datetime # For type hinting if needed
+from datetime import datetime as dt_datetime 
+import os
 
 # --- Configuration ---
 OUTINGS_LOG_FILE = 'rule-outing.csv'
@@ -13,6 +14,7 @@ BACKGROUND_COLOR = '#111111'
 DATA1_COLOR = '#36A0EB' #bleu - Monthly mean duration, Daily total duration
 DATA2_COLOR = '#36EB7B' #vert - Monthly count, Daily count, Hourly outing presence
 DATA3_COLOR = '#F14864' #rouge - Failures
+OUTPUT_FOLDER = "new_processed_csv/new_outing_csv"
 
 #--- Graph Configuration ---
 LEGEND = dict(orientation="h",yanchor="bottom",y=1.1,xanchor="center",x=0.5)
@@ -199,6 +201,19 @@ def get_outings_data():
     else:
         if 'year_month' not in door_failure_daily_markers.columns:
             door_failure_daily_markers['year_month'] = pd.Series(dtype='str')
+
+    # --- Create Output Folder and Save CSVs ---
+    try:
+        os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+        processed_outings_df.to_csv(os.path.join(OUTPUT_FOLDER, "processed_outings_df.csv"), index=False)
+        outings_daily_new.to_csv(os.path.join(OUTPUT_FOLDER, "outings_daily_activity.csv"), index=False)
+        outings_monthly.to_csv(os.path.join(OUTPUT_FOLDER, "outings_monthly_activity.csv"), index=False)
+        door_failure_daily_markers.to_csv(os.path.join(OUTPUT_FOLDER, "door_sensor_failure_days.csv"), index=False)
+        print("CSV files saved in folder:", OUTPUT_FOLDER)
+    except Exception as e:
+        print(f"Error saving CSVs: {e}")
+
+
 
     return processed_outings_df, outings_daily_new, outings_monthly, door_failure_daily_markers
 

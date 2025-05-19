@@ -2,7 +2,8 @@ import pandas as pd
 import plotly.graph_objs as go
 from dash import Dash, dcc, html, Input, Output
 import numpy as np
-from datetime import datetime as dt_datetime # Pour type hinting ou conversions explicites
+from datetime import datetime as dt_datetime 
+import os
 
 # --- Configuration ---
 TOILET_LOG_FILE = 'rule-toilet.csv'
@@ -16,6 +17,7 @@ DATA3_COLOR = '#EB9636' # Orange - Monthly mean daily count
 FAILURE_MARKER_COLOR = '#F14864' # Rouge
 DATAMONTH_COLOR = DATA1_COLOR
 DATAMONTH2_COLOR = DATA2_COLOR
+OUTPUT_FOLDER = "new_processed_csv/new_toilet_csv"
 
 
 # --- Graph Configuration ---
@@ -28,58 +30,51 @@ TITLE_Y = 0.92
 # --- Data Loading and Processing Function ---
 def get_toilet_data():
     try:
-        # activity_raw_timestamps contient les événements bruts avec timestamps complets
-        activity_raw_timestamps = pd.read_csv(TOILET_LOG_FILE, delimiter=';', decimal=",",
-                                        names=["date", "annotation", "activity_count", "duration"],
-                                        parse_dates=["date"], index_col="date")
-        # 'duration' est en secondes, convertir en minutes pour duration_min
+        activity_raw_timestamps = pd.read_csv(
+            TOILET_LOG_FILE, delimiter=';', decimal=",",
+            names=["date", "annotation", "activity_count", "duration"],
+            parse_dates=["date"], index_col="date"
+        )
         activity_raw_timestamps['duration_min'] = activity_raw_timestamps['duration'] / 60.0
     except FileNotFoundError:
         print(f"Error: '{TOILET_LOG_FILE}' not found.")
-        activity_raw_timestamps = pd.DataFrame(columns=["annotation", "activity_count", "duration","duration_min"],
-                                        index=pd.to_datetime([]))
+        activity_raw_timestamps = pd.DataFrame(columns=["annotation", "activity_count", "duration", "duration_min"],
+                                                index=pd.to_datetime([]))
         activity_raw_timestamps.index.name = 'date'
     except Exception as e:
         print(f"Error loading {TOILET_LOG_FILE}: {e}")
-        activity_raw_timestamps = pd.DataFrame(columns=["annotation", "activity_count", "duration","duration_min"],
-                                        index=pd.to_datetime([]))
+        activity_raw_timestamps = pd.DataFrame(columns=["annotation", "activity_count", "duration", "duration_min"],
+                                                index=pd.to_datetime([]))
         activity_raw_timestamps.index.name = 'date'
 
     # --- Daily Aggregation ---
     if not activity_raw_timestamps.empty:
         activity_daily_intermediate = activity_raw_timestamps.resample('D').agg(
             activity_count_sum_daily=('activity_count', 'sum'),
-            duration_min_sum_daily=('duration_min', 'sum') # Somme des durées des événements qui COMMENCENT ce jour-là
+            duration_min_sum_daily=('duration_min', 'sum')
         )
-        # activity_daily_for_graph est utilisé pour la vue 'month' et pour peupler les dropdowns de jours
         activity_daily_for_graph = activity_raw_timestamps.resample('D').agg(
             activity_count_sum=('activity_count', 'sum'),
-            duration_min_sum=('duration_min', 'sum') # idem
+            duration_min_sum=('duration_min', 'sum')
         ).reset_index()
-        activity_daily_for_graph['year_month'] = activity_daily_for_graph['date'].dt.strftime('%Y-%m') # Standardisé
-        activity_daily_for_graph['date_str'] = activity_daily_for_graph['date'].dt.strftime('%Y-%m-%d') # Ajouté
+        activity_daily_for_graph['year_month'] = activity_daily_for_graph['date'].dt.strftime('%Y-%m')
+        activity_daily_for_graph['date_str'] = activity_daily_for_graph['date'].dt.strftime('%Y-%m-%d')
     else:
-        activity_daily_intermediate = pd.DataFrame(
-            columns=['activity_count_sum_daily', 'duration_min_sum_daily'],
-            index=pd.to_datetime([])
-        )
+        activity_daily_intermediate = pd.DataFrame(columns=['activity_count_sum_daily', 'duration_min_sum_daily'],
+                                                   index=pd.to_datetime([]))
         activity_daily_intermediate.index.name = 'date'
         activity_daily_for_graph = pd.DataFrame(columns=['date', 'activity_count_sum', 'duration_min_sum', 'year_month', 'date_str'])
         activity_daily_for_graph = activity_daily_for_graph.astype({'date': 'datetime64[ns]'})
 
-
     # --- Monthly Aggregation ---
     if not activity_daily_intermediate.empty:
         monthly_agg_input = activity_daily_intermediate.copy()
-        # Pour la moyenne, on ne veut pas que les jours sans activité (durée 0) tirent la moyenne vers le bas.
-        # Si un jour a 0 min, il ne compte pas dans la moyenne des durées journalières.
         monthly_agg_input['duration_min_sum_daily_for_avg'] = monthly_agg_input['duration_min_sum_daily'].replace(0, np.nan)
         activity_monthly = monthly_agg_input.resample('ME').agg(
             duration_min_mean_of_daily_totals=('duration_min_sum_daily_for_avg', 'mean'),
             duration_min_sem_of_daily_totals=('duration_min_sum_daily_for_avg', 'sem'),
             activity_count_sum_monthly=('activity_count_sum_daily', 'sum')
-        ).reset_index()
-        activity_monthly = activity_monthly.rename(columns={
+        ).reset_index().rename(columns={
             'duration_min_mean_of_daily_totals': 'duration_min_mean',
             'duration_min_sem_of_daily_totals': 'duration_min_sem',
             'activity_count_sum_monthly': 'activity_count_sum'
@@ -88,17 +83,15 @@ def get_toilet_data():
             activity_monthly['days_in_month'] = activity_monthly['date'].dt.daysinmonth
             activity_monthly['activity_count_mean_daily'] = np.where(
                 activity_monthly['days_in_month'] > 0,
-                activity_monthly['activity_count_sum'] / activity_monthly['days_in_month'],0)
-        else:
-            activity_monthly['days_in_month'] = 0
-            activity_monthly['activity_count_mean_daily'] = 0
+                activity_monthly['activity_count_sum'] / activity_monthly['days_in_month'],
+                0
+            )
     else:
-        activity_monthly = pd.DataFrame(columns=['date', 'activity_count_sum', 'duration_min_mean',
-                                                'duration_min_sem', 'days_in_month',
-                                                'activity_count_mean_daily'])
-        if 'date' not in activity_monthly.columns:
-            activity_monthly['date'] = pd.Series(dtype='datetime64[ns]')
-
+        activity_monthly = pd.DataFrame(columns=[
+            'date', 'activity_count_sum', 'duration_min_mean',
+            'duration_min_sem', 'days_in_month', 'activity_count_mean_daily'
+        ])
+        activity_monthly['date'] = pd.Series(dtype='datetime64[ns]')
 
     # --- Failure Data ---
     toilet_failure_daily_markers = pd.DataFrame(columns=['date', 'year_month'])
@@ -106,69 +99,71 @@ def get_toilet_data():
         failure_dates_df = pd.read_csv(
             TOILET_FAILURE_DAYS_FILE, header=None, names=['date'], parse_dates=[0], comment='#'
         )
-        toilet_failure_daily_markers_temp = failure_dates_df[['date']].dropna(subset=['date']).copy()
+        toilet_failure_daily_markers_temp = failure_dates_df.dropna(subset=['date']).copy()
         toilet_failure_daily_markers_temp['date'] = pd.to_datetime(toilet_failure_daily_markers_temp['date'], errors='coerce')
         toilet_failure_daily_markers_temp.dropna(subset=['date'], inplace=True)
         if not toilet_failure_daily_markers_temp.empty:
-                toilet_failure_daily_markers_temp['year_month'] = toilet_failure_daily_markers_temp['date'].dt.strftime('%Y-%m')
+            toilet_failure_daily_markers_temp['year_month'] = toilet_failure_daily_markers_temp['date'].dt.strftime('%Y-%m')
         toilet_failure_daily_markers = toilet_failure_daily_markers_temp
-
     except FileNotFoundError:
-        print(f"Avertissement : Fichier '{TOILET_FAILURE_DAYS_FILE}' non trouvé.")
+        print(f"Warning: File '{TOILET_FAILURE_DAYS_FILE}' not found.")
     except pd.errors.EmptyDataError:
-        print(f"Avertissement : Fichier '{TOILET_FAILURE_DAYS_FILE}' est vide.")
+        print(f"Warning: File '{TOILET_FAILURE_DAYS_FILE}' is empty.")
     except Exception as e:
-        print(f"Erreur lors du chargement de '{TOILET_FAILURE_DAYS_FILE}': {e}")
-
+        print(f"Error loading '{TOILET_FAILURE_DAYS_FILE}': {e}")
 
     toilet_failure_monthly_sum_agg = pd.DataFrame(columns=['toilet_failure_days_sum'], index=pd.to_datetime([]))
     toilet_failure_monthly_sum_agg.index.name = 'date'
+
     if not toilet_failure_daily_markers.empty:
-        temp_failure_monthly = toilet_failure_daily_markers.copy()
-        temp_failure_monthly['date'] = pd.to_datetime(temp_failure_monthly['date'])
-        temp_failure_monthly = temp_failure_monthly.set_index('date')
+        temp_failure_monthly = toilet_failure_daily_markers.copy().set_index('date')
         temp_failure_monthly['failure_day_count'] = 1
         toilet_failure_monthly_sum_agg = temp_failure_monthly.resample('ME').agg(
             toilet_failure_days_sum=('failure_day_count', 'sum')
         )
 
-    if not activity_monthly.empty and 'date' in activity_monthly.columns:
+    # --- Merge Failures with Monthly Aggregates ---
+    if not activity_monthly.empty:
         activity_monthly['date'] = pd.to_datetime(activity_monthly['date'])
         activity_monthly = pd.merge(
             activity_monthly, toilet_failure_monthly_sum_agg.reset_index(), on='date', how='outer'
         )
         for col in ['toilet_failure_days_sum', 'activity_count_sum', 'days_in_month', 'activity_count_mean_daily']:
-                if col in activity_monthly.columns:
-                    activity_monthly[col] = activity_monthly[col].fillna(0).astype(int if 'sum' in col or 'count' in col or 'days_in_month' in col else float)
-                else:
-                    activity_monthly[col] = 0
+            activity_monthly[col] = activity_monthly.get(col, 0).fillna(0).astype(int)
         for col in ['duration_min_mean', 'duration_min_sem']:
-            if col in activity_monthly.columns:
-                activity_monthly[col] = activity_monthly[col].fillna(np.nan)
-            else:
-                activity_monthly[col] = np.nan
-
-    elif not toilet_failure_monthly_sum_agg.empty :
+            activity_monthly[col] = activity_monthly.get(col, np.nan)
+    elif not toilet_failure_monthly_sum_agg.empty:
         activity_monthly = toilet_failure_monthly_sum_agg.reset_index()
         activity_monthly['toilet_failure_days_sum'] = activity_monthly['toilet_failure_days_sum'].fillna(0).astype(int)
         for col in ['activity_count_sum', 'duration_min_mean', 'duration_min_sem', 'days_in_month', 'activity_count_mean_daily']:
             activity_monthly[col] = np.nan if 'mean' in col or 'sem' in col else 0
-    else: # Both are empty
-        cols_to_ensure = ['date','activity_count_sum', 'duration_min_mean', 'duration_min_sem', 'days_in_month', 'activity_count_mean_daily', 'toilet_failure_days_sum']
-        for col in cols_to_ensure:
-            if col not in activity_monthly.columns:
-                    activity_monthly[col] = pd.Series(dtype='float64' if 'mean' in col or 'sem' in col else ('datetime64[ns]' if col == 'date' else 'int64'))
-
-
-    if 'date' in activity_monthly.columns and not activity_monthly.empty:
-        valid_dates_monthly = activity_monthly['date'].notna()
-        activity_monthly['month_label'] = ''
-        if valid_dates_monthly.any():
-            activity_monthly.loc[valid_dates_monthly, 'month_label'] = activity_monthly.loc[valid_dates_monthly, 'date'].dt.strftime('%m/%y')
     else:
-        if 'month_label' not in activity_monthly.columns: activity_monthly['month_label'] = pd.Series(dtype='str')
-        if 'toilet_failure_days_sum' not in activity_monthly.columns: activity_monthly['toilet_failure_days_sum'] = 0
-        if 'date' not in activity_monthly.columns: activity_monthly['date'] = pd.Series(dtype='datetime64[ns]')
+        cols_to_add = ['date', 'activity_count_sum', 'duration_min_mean', 'duration_min_sem',
+                       'days_in_month', 'activity_count_mean_daily', 'toilet_failure_days_sum']
+        for col in cols_to_add:
+            dtype = 'float64' if 'mean' in col or 'sem' in col else 'int64'
+            if col == 'date':
+                dtype = 'datetime64[ns]'
+            activity_monthly[col] = pd.Series(dtype=dtype)
+
+    # Add month label
+    if 'date' in activity_monthly.columns and not activity_monthly.empty:
+        valid_dates = activity_monthly['date'].notna()
+        activity_monthly['month_label'] = ''
+        activity_monthly.loc[valid_dates, 'month_label'] = activity_monthly.loc[valid_dates, 'date'].dt.strftime('%m/%y')
+    else:
+        activity_monthly['month_label'] = pd.Series(dtype='str')
+
+   # --- Create Output Folder and Save CSVs ---
+    try:
+        os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+        activity_daily_for_graph.to_csv(os.path.join(OUTPUT_FOLDER, "daily_toilet_activity.csv"), index=False)
+        activity_monthly.to_csv(os.path.join(OUTPUT_FOLDER, "monthly_toilet_activity.csv"), index=False)
+        toilet_failure_daily_markers.to_csv(os.path.join(OUTPUT_FOLDER, "toilet_sensor_failure_days.csv"), index=False)
+        print("CSV files saved in folder:", OUTPUT_FOLDER)
+    except Exception as e:
+        print(f"Error saving CSVs: {e}")
+
 
     return activity_raw_timestamps, activity_daily_for_graph, activity_monthly, toilet_failure_daily_markers
 

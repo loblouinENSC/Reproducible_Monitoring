@@ -2,7 +2,8 @@ import pandas as pd
 import plotly.graph_objs as go
 from dash import Dash, dcc, html, Input, Output
 import numpy as np
-from datetime import datetime as dt_datetime # Pour la conversion de chaîne en objet date
+from datetime import datetime as dt_datetime 
+import os 
 
 # --- Configuration ---
 SLEEP_LOG_FILE = 'rule-sleep_quiet.csv'
@@ -14,6 +15,7 @@ DATA1_COLOR = '#36A0EB' #bleu - Pour la durée moyenne mensuelle, durée journal
 DATA2_COLOR = '#F14864' #rouge - Pour les échecs capteur
 DATAMONTH_COLOR = '#36A0EB' # Utilisé pour la vue mensuelle/journalière (durée sommeil)
 SLEEP_HOURLY_COLOR = '#58D68D' # Vert pour les barres de sommeil horaire (en minutes)
+OUTPUT_FOLDER = "new_processed_csv/new_sleep_csv"
 
 # --- Graph Configuration ---
 LEGEND = dict(orientation="h",yanchor="bottom",y=1.1,xanchor="center",x=0.5)
@@ -125,7 +127,22 @@ def get_sleep_data():
         if 'year_month' not in bed_failure_daily_markers.columns: # Ensure column exists
             bed_failure_daily_markers['year_month'] = pd.Series(dtype='str')
 
+
+    # --- Create Output Folder and Save CSVs ---
+    try:
+        os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+        sleep_raw_timestamps.to_csv(os.path.join(OUTPUT_FOLDER, "processed_sleep_df.csv"), index=False)
+        sleep_daily.to_csv(os.path.join(OUTPUT_FOLDER, "sleep_daily_activity.csv"), index=False)
+        sleep_monthly.to_csv(os.path.join(OUTPUT_FOLDER, "sleep_monthly_activity.csv"), index=False)
+        bed_failure_daily_markers.to_csv(os.path.join(OUTPUT_FOLDER, "bed_sensor_failure_day.csv"), index=False)
+        print("CSV files saved in folder:", OUTPUT_FOLDER)
+    except Exception as e:
+        print(f"Error saving CSVs: {e}")
+
     return sleep_raw_timestamps, sleep_daily, sleep_monthly, bed_failure_daily_markers
+
+
+
 
 # --- Figure Creation Function ---
 def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_failure_markers,
