@@ -193,7 +193,7 @@ def create_toilet_figure_1(raw_ts_data, aggregated_daily_data, monthly_data, dai
             
             # Jours échec capteur (line)
             if 'failure_percentage' in df_monthly.columns:
-                fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['failure_percentage'], name="Jours échec capteur",yaxis='y2', mode='lines+markers', line=dict(color=FAILURE_MARKER_COLOR, dash='dot')))
+                fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['failure_percentage'], name="Jours échec capteur (%)",yaxis='y2', mode='lines+markers', line=dict(color=FAILURE_MARKER_COLOR, dash='dot')))
             
             # Set y-axis ranges
             failure_max = df_monthly['failure_percentage'].max() if 'failure_percentage' in df_monthly.columns and pd.notna(df_monthly['failure_percentage'].max()) else 5
@@ -221,22 +221,10 @@ def create_toilet_figure_1(raw_ts_data, aggregated_daily_data, monthly_data, dai
         
         if not df_daily_activity.empty:
             if 'duration_min_sum' in df_daily_activity.columns:
-                fig.add_trace(go.Bar(
-                    x=df_daily_activity['date'], 
-                    y=df_daily_activity['duration_min_sum'], 
-                    name="Durée totale (min)", 
-                    marker_color=DATAMONTH_COLOR
-                ))
+                fig.add_trace(go.Bar(x=df_daily_activity['date'], y=df_daily_activity['duration_min_sum'], name="Durée totale (min)", marker_color=DATAMONTH_COLOR))
         
         if not df_daily_failure_filtered.empty:
-            fig.add_trace(go.Scatter(
-                x=df_daily_failure_filtered['date'], 
-                y=[1.0] * len(df_daily_failure_filtered), 
-                name="Échec capteur",
-                mode='markers', 
-                marker=dict(color=FAILURE_MARKER_COLOR, size=10, symbol='x'), 
-                yaxis='y2'
-            ))
+            fig.add_trace(go.Scatter(x=df_daily_failure_filtered['date'], y=[0.1], name="Échec capteur", mode='markers', marker=dict(color=FAILURE_MARKER_COLOR, size=10, symbol='x'), yaxis='y2'))
         
         if not df_daily_activity.empty or not df_daily_failure_filtered.empty:
             all_relevant_dates = []
@@ -373,7 +361,7 @@ def create_toilet_figure_2(raw_ts_data, aggregated_daily_data, monthly_data, dai
                 title=dict(text="Passages Totaux et Moyens - Vue Annuelle", x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Mois")),
                 yaxis=dict(title=dict(text="Passages totaux"), range=[0, y1_max_val], tickfont=dict(color=DATA2_COLOR)),
-                yaxis2=dict(title=dict(text="Passages moyens/jour"), range=[0, y2_max_val], tickfont=dict(color=DATA3_COLOR),
+                yaxis2=dict(title=dict(text="Passages moyens/jour"), range=[0, 100], tickfont=dict(color=DATA3_COLOR),
                            overlaying='y', side='right', showgrid=False),
                 legend=LEGEND,
                 hovermode='x unified'
@@ -385,13 +373,7 @@ def create_toilet_figure_2(raw_ts_data, aggregated_daily_data, monthly_data, dai
         df_daily_activity = aggregated_daily_data[aggregated_daily_data['year_month'] == selected_month] if not aggregated_daily_data.empty else pd.DataFrame()
         
         if not df_daily_activity.empty:
-            fig.add_trace(go.Scatter(
-                x=df_daily_activity['date'], 
-                y=df_daily_activity['activity_count_sum'],
-                name="Passages par jour",
-                mode='lines+markers', 
-                line=dict(color=DATAMONTH2_COLOR)
-            ))
+            fig.add_trace(go.Bar(x=df_daily_activity['date'], y=df_daily_activity['activity_count_sum'], name="Passages par jour", marker_color=DATAMONTH2_COLOR))
         
         if not df_daily_activity.empty:
             all_relevant_dates = df_daily_activity['date'].tolist()

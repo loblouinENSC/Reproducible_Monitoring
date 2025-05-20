@@ -14,7 +14,7 @@ BACKGROUND_COLOR = '#111111'
 DATA1_COLOR = '#36A0EB' #bleu - Pour la durée moyenne mensuelle, durée journalière
 DATA2_COLOR = '#F14864' #rouge - Pour les échecs capteur
 DATAMONTH_COLOR = '#36A0EB' # Utilisé pour la vue mensuelle/journalière (durée sommeil)
-SLEEP_HOURLY_COLOR = '#58D68D' # Vert pour les barres de sommeil horaire (en minutes)
+SLEEP_HOURLY_COLOR = DATA1_COLOR
 OUTPUT_FOLDER = "new_processed_csv/new_sleep_csv"
 
 # --- Graph Configuration ---
@@ -163,7 +163,9 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
         df_monthly = monthly_data
         if not df_monthly.empty:
             total_days_in_year = df_monthly['date'].dt.daysinmonth.sum()
+            #Met les pannes de capteur en pourcentage
             df_monthly['failure_percentage'] = (df_monthly['bed_failure_sum'] / df_monthly['date'].dt.daysinmonth) * 100
+
             fig.add_trace(go.Bar(x=df_monthly['month_label'], y=df_monthly['duration_mean'], name="Durée moyenne sommeil (h)", error_y=dict(type='data', array=df_monthly['duration_sem']), marker_color=DATA1_COLOR))
             fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['failure_percentage'], name="Jours échec lit (%)", yaxis='y2', mode='lines+markers', line=dict(color=DATA2_COLOR, dash='dot')))
 
@@ -176,7 +178,8 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
                 xaxis=dict(title=dict(text="Mois")),
                 yaxis=dict(title=dict(text="Durée moyenne sommeil (h)"), tickfont=dict(color=DATA1_COLOR)),
                 yaxis2=dict(title=dict(text="Jours échec lit (%)"), overlaying='y', side='right', tickfont=dict(color=DATA2_COLOR), showgrid=False, range=[0, y2_max_range]),
-                legend=LEGEND
+                legend=LEGEND,
+                hovermode='x unified'
             )
         else:
             fig.update_layout(title=dict(text="Yearly View: No monthly data available"))

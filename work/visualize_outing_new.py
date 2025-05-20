@@ -240,7 +240,7 @@ def create_outings_figure_1(processed_outings_data, aggregated_daily_data, month
             df_monthly['failure_percentage'] = (df_monthly['door_failure_days_sum_monthly'] / df_monthly['date'].dt.daysinmonth) * 100
             fig.add_trace(go.Bar(x=df_monthly['month_label'], y=df_monthly['duration_hours_mean'], name="Durée moy. sortie (heures)", error_y=dict(type='data', array=df_monthly['duration_hours_sem']), marker_color=DATA1_COLOR))
             if 'door_failure_days_sum_monthly' in df_monthly.columns:
-                fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['failure_percentage'],yaxis='y2', name="Jours échec porte / mois", mode='lines+markers', line=dict(color=DATA3_COLOR, dash='dot')))
+                fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['failure_percentage'],yaxis='y2', name="Jours échec porte (%)", mode='lines+markers', line=dict(color=DATA3_COLOR, dash='dot')))
             
             y2_max_val = 5
             if 'failure_percentage' in df_monthly.columns and pd.notna(df_monthly['failure_percentage'].max()):
@@ -251,7 +251,8 @@ def create_outings_figure_1(processed_outings_data, aggregated_daily_data, month
                 xaxis=dict(title=dict(text="Mois")),
                 yaxis=dict(title=dict(text="Durée moyenne sortie (heures)"), tickfont=dict(color=DATA1_COLOR), range=[0, 105]),
                 yaxis2=dict(title=dict(text="Jours échec porte (%)"), tickfont=dict(color=DATA3_COLOR), showgrid=False, range=[0,y2_max_val]),
-                legend=LEGEND
+                legend=LEGEND,
+                hovermode='x unified'
             )
         else:
             fig.update_layout(title=dict(text="Outings: No yearly data available"))
@@ -271,7 +272,7 @@ def create_outings_figure_1(processed_outings_data, aggregated_daily_data, month
         if not df_daily_activity.empty:
             fig.add_trace(go.Bar(x=df_daily_activity['date'], y=df_daily_activity['duration_hours_sum'], name="Temps dehors / jour (heures)", marker_color=DATA1_COLOR))
         if not df_daily_failure_filtered.empty:
-            fig.add_trace(go.Scatter(x=df_daily_failure_filtered['date'], y=[0.3] * len(df_daily_failure_filtered), name="Échec porte", mode='markers', marker=dict(color=DATA3_COLOR, size=10, symbol='x'), yaxis='y2'))
+            fig.add_trace(go.Scatter(x=df_daily_failure_filtered['date'], y=[0.1] * len(df_daily_failure_filtered), name="Échec porte", mode='markers', marker=dict(color=DATA3_COLOR, size=10, symbol='x'), yaxis='y2'))
         
         if not df_daily_activity.empty or not df_daily_failure_filtered.empty:
             y2_range_max = 2 # Max for failure marker
