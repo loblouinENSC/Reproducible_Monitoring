@@ -2,8 +2,8 @@ import pandas as pd
 import plotly.graph_objs as go
 from dash import Dash, dcc, html, Input, Output
 import numpy as np
-from datetime import datetime as dt_datetime 
-import os 
+from datetime import datetime as dt_datetime
+import os
 
 # --- Configuration ---
 SLEEP_LOG_FILE = 'rule-sleep_quiet.csv'
@@ -31,13 +31,9 @@ def get_sleep_data():
         # Important: 'date' ici est un timestamp complet (date et heure)
         # 'duration' est en secondes
         sleep_raw_timestamps = pd.read_csv(SLEEP_LOG_FILE, delimiter=';', decimal=",",
-                                        names=["date", "annotation", "sleep_count", "duration"],
-                                        parse_dates=["date"], index_col="date")
-        # On conserve la colonne 'duration' (en secondes) pour la vue horaire.
-        # La colonne 'durationHr' peut être calculée si besoin pour d'autres vues.
+                                           names=["date", "annotation", "sleep_count", "duration"],
+                                           parse_dates=["date"], index_col="date")
         sleep_raw_timestamps['durationHr'] = sleep_raw_timestamps['duration'] / 3600.0
-        # Ne pas filtrer les colonnes ici pour garder 'duration' disponible.
-        # L'ancienne ligne: sleep_raw_timestamps = sleep_raw_timestamps[['durationHr']] EST SUPPRIMÉE.
     except FileNotFoundError:
         print(f"Error: '{SLEEP_LOG_FILE}' not found.")
         sleep_raw_timestamps = pd.DataFrame(columns=["annotation", "sleep_count", "duration", "durationHr"], index=pd.to_datetime([]))
@@ -74,12 +70,12 @@ def get_sleep_data():
     if not sleep_raw_timestamps.empty and 'durationHr' in sleep_raw_timestamps.columns:
         # 'date' sera la colonne datetime (début du jour), 'duration_sum' la somme des heures
         sleep_daily = sleep_raw_timestamps.resample('D')['durationHr'].sum().reset_index(name='duration_sum')
-        sleep_daily['date_str'] = sleep_daily['date'].dt.strftime('%Y-%m-%d') 
-        sleep_daily['year_month'] = sleep_daily['date'].dt.strftime('%Y-%m') 
+        sleep_daily['date_str'] = sleep_daily['date'].dt.strftime('%Y-%m-%d')
+        sleep_daily['year_month'] = sleep_daily['date'].dt.strftime('%Y-%m')
     else:
         sleep_daily = pd.DataFrame(columns=['date', 'duration_sum', 'date_str', 'year_month'])
         sleep_daily = sleep_daily.astype({'date': 'datetime64[ns]', 'duration_sum': 'float64',
-                                        'date_str': 'object', 'year_month': 'object'})
+                                             'date_str': 'object', 'year_month': 'object'})
 
     # -----Monthly Aggregation (basée sur les totaux journaliers en heures)-----
     if not sleep_daily.empty:
@@ -166,18 +162,20 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
     if scale == 'year':
         df_monthly = monthly_data
         if not df_monthly.empty:
+            total_days_in_year = df_monthly['date'].dt.daysinmonth.sum()
+            df_monthly['failure_percentage'] = (df_monthly['bed_failure_sum'] / df_monthly['date'].dt.daysinmonth) * 100
             fig.add_trace(go.Bar(x=df_monthly['month_label'], y=df_monthly['duration_mean'], name="Durée moyenne sommeil (h)", error_y=dict(type='data', array=df_monthly['duration_sem']), marker_color=DATA1_COLOR))
-            fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['bed_failure_sum'], name="Jours échec lit", yaxis='y2', mode='lines+markers', line=dict(color=DATA2_COLOR, dash='dot')))
-            
-            y2_max_range = 5
-            if pd.notna(df_monthly['bed_failure_sum'].max()) and df_monthly['bed_failure_sum'].max() > 0:
-                y2_max_range = df_monthly['bed_failure_sum'].max() * 1.1
+            fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['failure_percentage'], name="Jours échec lit (%)", yaxis='y2', mode='lines+markers', line=dict(color=DATA2_COLOR, dash='dot')))
+
+            y2_max_range = 100
+            if pd.notna(df_monthly['failure_percentage'].max()) and df_monthly['failure_percentage'].max() > 0:
+                y2_max_range = min(df_monthly['failure_percentage'].max() * 1.2, 100)
 
             fig.update_layout(
-                title=dict(text="Vue Annuelle : Activité de Sommeil Mensuelle", x= TITLE_X, y = TITLE_Y),
+                title=dict(text="Vue Annuelle : Activité de Sommeil Mensuelle et Échec du Lit", x= TITLE_X, y = TITLE_Y),
                 xaxis=dict(title=dict(text="Mois")),
                 yaxis=dict(title=dict(text="Durée moyenne sommeil (h)"), tickfont=dict(color=DATA1_COLOR)),
-                yaxis2=dict(title=dict(text="Jours échec lit"), overlaying='y', side='right', tickfont=dict(color=DATA2_COLOR), showgrid=False, range=[0, y2_max_range]),
+                yaxis2=dict(title=dict(text="Jours échec lit (%)"), overlaying='y', side='right', tickfont=dict(color=DATA2_COLOR), showgrid=False, range=[0, y2_max_range]),
                 legend=LEGEND
             )
         else:
@@ -217,10 +215,8 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
                 yaxis=dict(title=dict(text="Durée sommeil (h)"), range=[0, 13]), # Max 13h pour vue journalière
                 legend=LEGEND,
                 yaxis2=dict(overlaying='y', side='right', showticklabels=False, showgrid=False, zeroline=False, title=None) # Cacher yaxis2
-            )
-        else:
-            fig.update_layout(title=dict(text=f"Monthly View: No sleep data or bed failures for {selected_month}"))
-            
+            )       
+
     elif scale == 'month' and not selected_month:
         fig.update_layout(title=dict(text="Monthly View: Please select a month"))
 

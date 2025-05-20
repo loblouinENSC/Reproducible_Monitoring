@@ -219,7 +219,7 @@ def get_outings_data():
 
 
 # --- Figure Creation Function ---
-def create_outings_figure(processed_outings_data, aggregated_daily_data, monthly_data, daily_failure_markers,
+def create_outings_figure_1(processed_outings_data, aggregated_daily_data, monthly_data, daily_failure_markers,
                           scale, selected_month, selected_day): # Added selected_day & processed_outings_data
     fig = go.Figure()
     fig.update_layout(
@@ -236,24 +236,21 @@ def create_outings_figure(processed_outings_data, aggregated_daily_data, monthly
     if scale == 'year':
         df_monthly = monthly_data
         if not df_monthly.empty:
+
+            df_monthly['failure_percentage'] = (df_monthly['door_failure_days_sum_monthly'] / df_monthly['date'].dt.daysinmonth) * 100
             fig.add_trace(go.Bar(x=df_monthly['month_label'], y=df_monthly['duration_hours_mean'], name="Durée moy. sortie (heures)", error_y=dict(type='data', array=df_monthly['duration_hours_sem']), marker_color=DATA1_COLOR))
-            fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['activity_count_sum'], name="Nb. sorties / mois", yaxis='y2', mode='lines+markers', line=dict(color=DATA2_COLOR)))
             if 'door_failure_days_sum_monthly' in df_monthly.columns:
-                fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['door_failure_days_sum_monthly'], name="Jours échec porte / mois", yaxis='y2', mode='lines+markers', line=dict(color=DATA3_COLOR, dash='dot')))
+                fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['failure_percentage'],yaxis='y2', name="Jours échec porte / mois", mode='lines+markers', line=dict(color=DATA3_COLOR, dash='dot')))
             
             y2_max_val = 5
-            y2_columns_to_check = ['activity_count_sum', 'door_failure_days_sum_monthly']
-            current_max = 0
-            for col in y2_columns_to_check:
-                if col in df_monthly.columns and pd.notna(df_monthly[col].max()):
-                    current_max = max(current_max, df_monthly[col].max())
-            if current_max > 0: y2_max_val = current_max * 1.1
+            if 'failure_percentage' in df_monthly.columns and pd.notna(df_monthly['failure_percentage'].max()):
+                y2_max_val = max(5, df_monthly['failure_percentage'].max() * 1.1)
 
             fig.update_layout(
-                title=dict(text="Activité Sorties : Vue Annuelle (Mensuelle)", x=TITLE_X, y=TITLE_Y),
+                title=dict(text="Activité Sorties : Durée moyenne et Jours échec capteur (Vue Annuelle)", x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Mois")),
-                yaxis=dict(title=dict(text="Durée moyenne sortie (heures)"), tickfont=dict(color=DATA1_COLOR)),
-                yaxis2=dict(title=dict(text="Comptes"), tickfont=dict(color=DATA2_COLOR), showgrid=False, range=[0,y2_max_val]),
+                yaxis=dict(title=dict(text="Durée moyenne sortie (heures)"), tickfont=dict(color=DATA1_COLOR), range=[0, 105]),
+                yaxis2=dict(title=dict(text="Jours échec porte (%)"), tickfont=dict(color=DATA3_COLOR), showgrid=False, range=[0,y2_max_val]),
                 legend=LEGEND
             )
         else:
@@ -273,19 +270,16 @@ def create_outings_figure(processed_outings_data, aggregated_daily_data, monthly
 
         if not df_daily_activity.empty:
             fig.add_trace(go.Bar(x=df_daily_activity['date'], y=df_daily_activity['duration_hours_sum'], name="Temps dehors / jour (heures)", marker_color=DATA1_COLOR))
-            fig.add_trace(go.Scatter(x=df_daily_activity['date'], y=df_daily_activity['activity_count_sum'], name="Nb. sorties terminées / jour", yaxis='y2', mode='lines', line=dict(color=DATA2_COLOR)))
         if not df_daily_failure_filtered.empty:
-            fig.add_trace(go.Scatter(x=df_daily_failure_filtered['date'], y=[0.3] * len(df_daily_failure_filtered), name="Échec porte", mode='markers', marker=dict(color=DATA3_COLOR, size=10, symbol='x'), yaxis='y1'))
+            fig.add_trace(go.Scatter(x=df_daily_failure_filtered['date'], y=[0.3] * len(df_daily_failure_filtered), name="Échec porte", mode='markers', marker=dict(color=DATA3_COLOR, size=10, symbol='x'), yaxis='y2'))
         
         if not df_daily_activity.empty or not df_daily_failure_filtered.empty:
-            y2_max = df_daily_activity['activity_count_sum'].max() if not df_daily_activity.empty else 0
-            y2_range_max = max(3, y2_max * 1.1 if pd.notna(y2_max) else 3)
-
+            y2_range_max = 2 # Max for failure marker
             fig.update_layout(
-                title=dict(text=f"Activité Sorties : Vue Journalière (par jour) - {selected_month}", x=TITLE_X, y=TITLE_Y),
+                title=dict(text=f"Activité Sorties : Durée et Échecs capteur (Vue Journalière) - {selected_month}", x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Jour"), tickformat='%d', tickmode='array', tickvals=unique_display_dates, ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
                 yaxis=dict(title=dict(text="Temps dehors / jour (heures)"), range=[0, 24.5]),
-                yaxis2=dict(title=dict(text="Nb. sorties terminées"), range=[0, y2_range_max], showgrid=False),
+                yaxis2=dict(title=dict(text="Échec porte"), range=[0, y2_range_max], showgrid=False),
                 legend=LEGEND
             )
         else:
@@ -354,6 +348,66 @@ def create_outings_figure(processed_outings_data, aggregated_daily_data, monthly
         fig.update_layout(title=dict(text="Day View: Please select a day (after selecting a month)"))
 
 
+    if not fig.data:
+        fig.update_layout(title=dict(text="Aucune donnée à afficher pour la sélection actuelle"))
+    return fig
+
+def create_outings_figure_2(processed_outings_data, aggregated_daily_data, monthly_data, daily_failure_markers,
+                          scale, selected_month, selected_day):
+    fig = go.Figure()
+    fig.update_layout(
+        template='plotly_dark', paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=BACKGROUND_COLOR,
+        font=dict(color=TEXT_COLOR), title=dict(font=dict(color=TEXT_COLOR)),
+        legend=dict(font=dict(color=TEXT_COLOR)),
+        xaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
+        yaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
+        yaxis2=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)', overlaying='y', side='right'),
+        margin=MARGIN_CHART,
+        hoverlabel=dict(font_size=16, font_color="white", namelength=-1)
+    )
+
+    if scale == 'year':
+        df_monthly = monthly_data
+        if not df_monthly.empty:
+            fig.add_trace(go.Bar(x=df_monthly['month_label'], y=df_monthly['activity_count_sum'], name="Nb. sorties / mois", marker_color=DATA2_COLOR))
+            
+            y_max_val = df_monthly['activity_count_sum'].max() if pd.notna(df_monthly['activity_count_sum'].max()) else 5
+            y_range_max = max(5, y_max_val * 1.1) if y_max_val > 0 else 5
+
+            fig.update_layout(
+                title=dict(text="Activité Sorties : Nombre de sorties (Vue Annuelle)", x=TITLE_X, y=TITLE_Y),
+                xaxis=dict(title=dict(text="Mois")),
+                yaxis=dict(title=dict(text="Nb. sorties / mois"), tickfont=dict(color=DATA2_COLOR), range=[0, y_range_max]),
+                legend=LEGEND
+            )
+        else:
+            fig.update_layout(title=dict(text="Outings: No yearly data available"))
+
+    elif scale == 'month' and selected_month:
+        df_daily_activity = aggregated_daily_data[aggregated_daily_data['year_month'] == selected_month] if not aggregated_daily_data.empty else pd.DataFrame()
+        
+        if not df_daily_activity.empty:
+            fig.add_trace(go.Bar(x=df_daily_activity['date'], y=df_daily_activity['activity_count_sum'], name="Nb. sorties terminées / jour", marker_color=DATA2_COLOR))
+        
+        if not df_daily_activity.empty:
+            all_relevant_dates = df_daily_activity['date'].tolist()
+            unique_display_dates = sorted(list(set(all_relevant_dates))) if all_relevant_dates else []
+
+            y_max = df_daily_activity['activity_count_sum'].max() if not df_daily_activity.empty else 0
+            y_range_max = max(3, y_max * 1.1 if pd.notna(y_max) else 3)
+
+            fig.update_layout(
+                title=dict(text=f"Activité Sorties : Nombre de sorties (Vue Journalière) - {selected_month}", x=TITLE_X, y=TITLE_Y),
+                xaxis=dict(title=dict(text="Jour"), tickformat='%d', tickmode='array', tickvals=unique_display_dates, ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
+                yaxis=dict(title=dict(text="Nb. sorties terminées"), range=[0, y_range_max]),
+                legend=LEGEND
+            )
+        else:
+            fig.update_layout(title=dict(text=f"Outings: No daily data for {selected_month}"))
+            
+    elif scale == 'day' and selected_day:
+        fig.update_layout(title=dict(text=f"Day View: Outing count is not directly applicable for hourly view"))
+    
     if not fig.data:
         fig.update_layout(title=dict(text="Aucune donnée à afficher pour la sélection actuelle"))
     return fig
@@ -467,7 +521,7 @@ if __name__ == '__main__':
         Input('day-dropdown-outings', 'value') # New Input
     )
     def update_graph_standalone_outings(scale, selected_month, selected_day): # New parameter
-        return create_outings_figure(
+        return create_outings_figure_1(
             processed_outings_df,       # DataFrame of processed outings with start_ts, end_ts
             outings_daily_data,         # Aggregated daily data
             outings_monthly_data,

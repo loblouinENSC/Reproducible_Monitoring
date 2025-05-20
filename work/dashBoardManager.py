@@ -41,13 +41,13 @@ def process_daily_data(df):
     return df
 
 try:
-    from visualize_toilet_new import get_toilet_data, create_toilet_figure
+    from visualize_toilet_new import get_toilet_data, create_toilet_figure_1, create_toilet_figure_2
     print("Successfully imported toilet functions.")
 except ImportError as e:
     print(f"Error importing from visualize_toilet_new.py: {e}")
     def get_toilet_data(): return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    def create_toilet_figure(*args): return go.Figure().update_layout(title_text="Error loading toilet module (stub)")
-
+    def create_toilet_figure_1(*args): return go.Figure().update_layout(title_text="Error loading toilet module (stub)")
+    def create_toilet_figure_2(*args): return go.Figure().update_layout(title_text="Error loading toilet module (stub)")
 try:
     from visualize_sleep_quiet_new import get_sleep_data, create_sleep_figure
     print("Successfully imported sleep functions.")
@@ -57,12 +57,14 @@ except ImportError as e:
     def create_sleep_figure(*args): return go.Figure().update_layout(title_text="Error loading sleep module (stub)")
 
 try:
-    from visualize_outing_new import get_outings_data, create_outings_figure
+    # Changed import for outings
+    from visualize_outing_new import get_outings_data, create_outings_figure_1, create_outings_figure_2
     print("Successfully imported outings functions.")
 except ImportError as e:
     print(f"Error importing from visualize_outing_new.py: {e}")
     def get_outings_data(): return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    def create_outings_figure(*args): return go.Figure().update_layout(title_text="Error loading outings module (stub)")
+    def create_outings_figure_1(*args): return go.Figure().update_layout(title_text="Error loading outings module (stub)")
+    def create_outings_figure_2(*args): return go.Figure().update_layout(title_text="Error loading outings module (stub)")
 
 
 # --- Configuration Globale ---
@@ -172,7 +174,12 @@ app.layout = html.Div(id="app-container", children=[
             )
         ], style={'display': 'none'}),
     ]),
-    dcc.Graph(id='activity-graph')
+    # First chart - will display the Toilet Figure 1 or Outings Figure 1 or Sleep Figure
+    dcc.Graph(id='activity-graph-1'),
+    # Second chart - will display the Toilet Figure 2 or Outings Figure 2
+    html.Div(id='second-chart-container', children=[
+        dcc.Graph(id='activity-graph-2')
+    ], style={'display': 'none'})  # Initially hidden, will show only for toilet/outings activity
 ])
 
 # --- Callbacks ---
@@ -264,8 +271,20 @@ def update_day_dropdown_options(selected_activity_type, selected_month, scale):
                     value = available_days[0]
     return options, value
 
+# Callback to show/hide the second chart container based on activity type
 @app.callback(
-    Output('activity-graph', 'figure'),
+    Output('second-chart-container', 'style'),
+    Input('activity-type-selector', 'value')
+)
+def toggle_second_chart_visibility(activity_type):
+    # Show second chart for toilet and outings activities
+    if activity_type == 'toilet' or activity_type == 'outings':
+        return {'display': 'block', 'marginTop': '20px'}  # Show second chart
+    else:
+        return {'display': 'none'}  # Hide second chart for other activities
+
+@app.callback(
+    Output('activity-graph-1', 'figure'),
     Input('activity-type-selector', 'value'),
     Input('scale-selector', 'value'),
     Input('month-dropdown', 'value'),
@@ -288,7 +307,7 @@ def update_main_graph(activity_type, scale, selected_month, selected_day):
         df1_pass, df2_pass, df3_pass, df4_pass = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
         if activity_type == 'toilet':
-            create_fn = create_toilet_figure
+            create_fn = create_toilet_figure_1
             df1_pass = g_toilet_raw_ts_df
             df2_pass = g_toilet_daily_agg_df
             df3_pass = g_toilet_monthly_agg_df
@@ -300,7 +319,8 @@ def update_main_graph(activity_type, scale, selected_month, selected_day):
             df3_pass = g_sleep_monthly_agg_df
             df4_pass = g_sleep_bed_failure_daily_markers
         elif activity_type == 'outings':
-            create_fn = create_outings_figure
+            # Use create_outings_figure_1 for the first graph
+            create_fn = create_outings_figure_1
             df1_pass = g_outings_raw_ts_df
             df2_pass = g_outings_daily_agg_df
             df3_pass = g_outings_monthly_agg_df
@@ -352,8 +372,85 @@ def update_main_graph(activity_type, scale, selected_month, selected_day):
 
     return fig
 
+# New callback for second chart (toilet figure 2 and outings figure 2)
+@app.callback(
+    Output('activity-graph-2', 'figure'),
+    Input('activity-type-selector', 'value'),
+    Input('scale-selector', 'value'),
+    Input('month-dropdown', 'value'),
+    Input('day-dropdown', 'value')
+)
+def update_second_graph(activity_type, scale, selected_month, selected_day):
+    fig = go.Figure()
+    current_month = selected_month if scale in ['month', 'day'] else None
+    current_day = selected_day if scale == 'day' else None
+
+    fig.update_layout(
+        template='plotly_dark',
+        paper_bgcolor=BACKGROUND_COLOR,
+        plot_bgcolor=BACKGROUND_COLOR,
+        font=dict(color=TEXT_COLOR)
+    )
+
+    if activity_type == 'toilet':
+        try:
+            # For toilet activity, use the second chart function
+            fig = create_toilet_figure_2(
+                g_toilet_raw_ts_df,    # Raw/TS data
+                g_toilet_daily_agg_df,    # Daily aggregated data
+                g_toilet_monthly_agg_df,    # Monthly aggregated data
+                g_toilet_failure_markers_df,    # Failure markers data
+                scale,
+                current_month,
+                current_day
+            )
+        except Exception as e:
+            print(f"Error creating second figure for toilet with scale {scale}: {e}")
+            fig.update_layout(
+                title=dict(text=f"Error generating second graph: Check console", font=dict(color='red'))
+            )
+    elif activity_type == 'outings':
+        try:
+            # For outings activity, use create_outings_figure_2 for the second graph
+            fig = create_outings_figure_2(
+                g_outings_raw_ts_df,
+                g_outings_daily_agg_df,
+                g_outings_monthly_agg_df,
+                g_outings_door_failure_daily_markers,
+                scale,
+                current_month,
+                current_day
+            )
+        except Exception as e:
+            print(f"Error creating second figure for outings with scale {scale}: {e}")
+            fig.update_layout(
+                title=dict(text=f"Error generating second graph: Check console", font=dict(color='red'))
+            )
+    else:
+        # For other activities, this graph won't be shown anyway
+        fig.update_layout(title=dict(text="No second chart available", font=dict(color=TEXT_COLOR)))
+
+    current_title = fig.layout.title.text if fig.layout and fig.layout.title and fig.layout.title.text else ""
+    is_stub_title = "Error loading module (stub)" in current_title
+
+    if not fig.data and (not current_title or is_stub_title):
+        title_text = "Veuillez sélectionner une activité et une échelle."
+        if scale == 'day':
+            if not current_month:
+                 title_text = "Veuillez d'abord sélectionner un mois."
+            elif not current_day:
+                 title_text = "Veuillez sélectionner un jour pour la vue horaire."
+        elif scale == 'month' and not current_month:
+            title_text = "Veuillez sélectionner un mois pour la vue journalière."
+        
+        if is_stub_title and not fig.data:
+             fig.update_layout(title_text=title_text)
+        elif not fig.data:
+             fig.update_layout(title_text=title_text)
+
+    return fig
+
 # --- Exécution de l'App ---
 if __name__ == '__main__':
     print("Starting Dash Manager App...")
     app.run(debug=True)
-

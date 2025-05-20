@@ -167,10 +167,10 @@ def get_toilet_data():
 
     return activity_raw_timestamps, activity_daily_for_graph, activity_monthly, toilet_failure_daily_markers
 
-
-# --- Figure Creation Function ---
-def create_toilet_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_failure_markers,
-                        scale, selected_month, selected_day):
+# --- Figure Creation Functions for Split Charts ---
+def create_toilet_figure_1(raw_ts_data, aggregated_daily_data, monthly_data, daily_failure_markers,
+                                          scale, selected_month, selected_day):
+    """First chart: Duration moyenne + Jours échec capteur"""
     fig = go.Figure()
     fig.update_layout(
         template='plotly_dark', paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=BACKGROUND_COLOR,
@@ -186,33 +186,32 @@ def create_toilet_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily
     if scale == 'year':
         df_monthly = monthly_data
         if not df_monthly.empty:
+            #Met les pannes de capteur en pourcentage
+            df_monthly['failure_percentage'] = (df_monthly['toilet_failure_days_sum'] / df_monthly['date'].dt.daysinmonth) * 100
+            # Duration moyenne (bars)
             fig.add_trace(go.Bar(x=df_monthly['month_label'], y=df_monthly['duration_min_mean'], name="Durée moyenne (min)", error_y=dict(type='data', array=df_monthly['duration_min_sem']), marker_color=DATA1_COLOR))
-            fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['activity_count_sum'], name="Passages totaux", yaxis='y2', mode='lines+markers', line=dict(color=DATA2_COLOR)))
-            if 'activity_count_mean_daily' in df_monthly.columns:
-                fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['activity_count_mean_daily'], name="Passages moyens/jour", yaxis='y2', mode='lines+markers', line=dict(color=DATA3_COLOR)))
-            if 'toilet_failure_days_sum' in df_monthly.columns:
-                fig.add_trace(go.Scatter(
-                    x=df_monthly['month_label'], y=df_monthly['toilet_failure_days_sum'], name="Jours échec capteur",
-                    yaxis='y2', mode='lines+markers', line=dict(color=FAILURE_MARKER_COLOR, dash='dot')
-                ))
             
-            y2_max_val = 5
-            y2_columns_to_check = ['activity_count_sum', 'activity_count_mean_daily', 'toilet_failure_days_sum']
-            current_max = 0
-            for col in y2_columns_to_check:
-                if col in df_monthly.columns and pd.notna(df_monthly[col].max()):
-                    current_max = max(current_max, df_monthly[col].max())
-            if current_max > 0: y2_max_val = current_max * 1.1
+            # Jours échec capteur (line)
+            if 'failure_percentage' in df_monthly.columns:
+                fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['failure_percentage'], name="Jours échec capteur",yaxis='y2', mode='lines+markers', line=dict(color=FAILURE_MARKER_COLOR, dash='dot')))
+            
+            # Set y-axis ranges
+            failure_max = df_monthly['failure_percentage'].max() if 'failure_percentage' in df_monthly.columns and pd.notna(df_monthly['failure_percentage'].max()) else 5
+            y2_max_val = max(5, failure_max * 1.1) if failure_max > 0 else 5
 
             fig.update_layout(
-                title=dict(text="Vue Annuelle : Activité mensuelle Toilettes", x = TITLE_X, y = TITLE_Y),
+                title=dict(text="Durée Moyenne et Échecs Capteur - Vue Annuelle", x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Mois")),
                 yaxis=dict(title=dict(text="Durée moyenne (min)"), tickfont=dict(color=DATA1_COLOR)),
-                yaxis2=dict(title=dict(text="Comptes"), tickfont=dict(color=DATA2_COLOR), overlaying='y', side='right', range=[0, y2_max_val], showgrid=False),
-                legend=LEGEND
+                yaxis2=dict(title=dict(text="Jours échec capteur"), tickfont=dict(color=FAILURE_MARKER_COLOR), 
+                           overlaying='y', side='right', range=[0, y2_max_val], showgrid=False),
+                legend=LEGEND,
+                barmode='group',
+                bargap=0.15,
+                hovermode='x unified'
             )
         else:
-            fig.update_layout(title=dict(text="Yearly View: No monthly toilet data available"))
+            fig.update_layout(title=dict(text="Vue Annuelle: Aucune donnée disponible"))
 
     elif scale == 'month' and selected_month:
         df_daily_activity = aggregated_daily_data[aggregated_daily_data['year_month'] == selected_month] if not aggregated_daily_data.empty else pd.DataFrame()
@@ -220,60 +219,62 @@ def create_toilet_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily
         if not daily_failure_markers.empty and 'year_month' in daily_failure_markers.columns:
             df_daily_failure_filtered = daily_failure_markers[daily_failure_markers['year_month'] == selected_month]
         
-        all_relevant_dates = []
-        if not df_daily_activity.empty: all_relevant_dates.extend(df_daily_activity['date'].tolist()) 
-        if not df_daily_failure_filtered.empty: all_relevant_dates.extend(df_daily_failure_filtered['date'].tolist())
-        unique_display_dates = sorted(list(set(all_relevant_dates))) if all_relevant_dates else []
-
         if not df_daily_activity.empty:
             if 'duration_min_sum' in df_daily_activity.columns:
-                fig.add_trace(go.Bar(x=df_daily_activity['date'], y=df_daily_activity['duration_min_sum'], name="Durée totale (min)", yaxis='y1', marker_color = DATAMONTH_COLOR))
-            fig.add_trace(go.Scatter(x=df_daily_activity['date'], y=df_daily_activity['activity_count_sum'],name="Passages par jour",yaxis='y2', mode='lines+markers', line=dict(color=DATAMONTH2_COLOR) ))
+                fig.add_trace(go.Bar(
+                    x=df_daily_activity['date'], 
+                    y=df_daily_activity['duration_min_sum'], 
+                    name="Durée totale (min)", 
+                    marker_color=DATAMONTH_COLOR
+                ))
+        
         if not df_daily_failure_filtered.empty:
             fig.add_trace(go.Scatter(
-                x=df_daily_failure_filtered['date'], y=[1.0] * len(df_daily_failure_filtered), name="Échec capteur",
-                mode='markers', marker=dict(color=FAILURE_MARKER_COLOR, size=10, symbol='x'), yaxis='y1'
+                x=df_daily_failure_filtered['date'], 
+                y=[1.0] * len(df_daily_failure_filtered), 
+                name="Échec capteur",
+                mode='markers', 
+                marker=dict(color=FAILURE_MARKER_COLOR, size=10, symbol='x'), 
+                yaxis='y2'
             ))
         
         if not df_daily_activity.empty or not df_daily_failure_filtered.empty:
+            all_relevant_dates = []
+            if not df_daily_activity.empty: 
+                all_relevant_dates.extend(df_daily_activity['date'].tolist()) 
+            if not df_daily_failure_filtered.empty: 
+                all_relevant_dates.extend(df_daily_failure_filtered['date'].tolist())
+            unique_display_dates = sorted(list(set(all_relevant_dates))) if all_relevant_dates else []
+
             y1_max = df_daily_activity['duration_min_sum'].max() if not df_daily_activity.empty and 'duration_min_sum' in df_daily_activity else 0
             y1_range_max = max(40, y1_max * 1.1 if pd.notna(y1_max) else 40)
-            y2_max = df_daily_activity['activity_count_sum'].max() if not df_daily_activity.empty else 0
-            y2_range_max = max(10, y2_max * 1.1 if pd.notna(y2_max) else 10)
 
             fig.update_layout(
-                title=dict(text=f"Vue Journalière (par jour) Toilettes: {selected_month}", x=TITLE_X, y=TITLE_Y),
+                title=dict(text=f"Durée et Échecs Capteur - Vue Mensuelle: {selected_month}", x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Jour"), tickformat='%d', tickmode='array',
-                            tickvals=unique_display_dates,
-                            ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
-                yaxis=dict(title=dict(text="Durée totale (min)"),range=[0, y1_range_max],tickfont=dict(color=DATAMONTH_COLOR)),
-                yaxis2=dict(title=dict(text="Nombre de passages"),range=[0, y2_range_max], tickfont=dict(color=DATAMONTH2_COLOR),overlaying='y', side='right',showgrid=False),
+                          tickvals=unique_display_dates,
+                          ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
+                yaxis=dict(title=dict(text="Durée totale (min)"), range=[0, y1_range_max], tickfont=dict(color=DATAMONTH_COLOR)),
+                yaxis2=dict(title=dict(text="Échec capteur"), tickfont=dict(color=FAILURE_MARKER_COLOR),
+                           overlaying='y', side='right', range=[0, 2], showgrid=False),
                 legend=LEGEND
             )
         else:
-            fig.update_layout(title=dict(text=f"Monthly View: No toilet data or sensor failures for {selected_month}", x=TITLE_X, y=TITLE_Y))
+            fig.update_layout(title=dict(text=f"Vue Mensuelle: Aucune donnée pour {selected_month}", x=TITLE_X, y=TITLE_Y))
 
-    elif scale == 'month' and not selected_month:
-        fig.update_layout(title=dict(text="Monthly View: Please select a month"))
-
-    elif scale == 'day' and selected_day: # selected_day is 'YYYY-MM-DD' string
-        # raw_ts_data index is 'date' (datetime of event start), has 'duration' (seconds), 'duration_min'
+    elif scale == 'day' and selected_day:
         if not raw_ts_data.empty and 'duration' in raw_ts_data.columns:
             try:
                 day_start_ts = pd.to_datetime(selected_day + " 00:00:00")
-                day_end_ts = day_start_ts + pd.Timedelta(days=1) # Fin de journée (exclusive)
+                day_end_ts = day_start_ts + pd.Timedelta(days=1)
 
-                # Préparer les données avec une colonne 'end_ts' pour chaque visite
-                # 'duration' est en secondes dans le fichier original.
-                # raw_ts_data.index est le 'start_ts' de la visite.
                 visits_on_day_df = raw_ts_data.copy()
                 visits_on_day_df['event_start_ts'] = visits_on_day_df.index
                 visits_on_day_df['event_end_ts'] = visits_on_day_df['event_start_ts'] + pd.to_timedelta(visits_on_day_df['duration'], unit='s')
 
-                # Filtrer les visites qui chevauchent le jour sélectionné
                 relevant_visits = visits_on_day_df[
-                    (visits_on_day_df['event_start_ts'] < day_end_ts) &   # La visite commence avant la fin du jour J
-                    (visits_on_day_df['event_end_ts'] > day_start_ts)    # La visite se termine après le début du jour J
+                    (visits_on_day_df['event_start_ts'] < day_end_ts) &
+                    (visits_on_day_df['event_end_ts'] > day_start_ts)
                 ]
 
                 hourly_total_duration_min = pd.Series(0.0, index=range(24))
@@ -283,53 +284,175 @@ def create_toilet_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily
                         visit_actual_start = visit['event_start_ts']
                         visit_actual_end = visit['event_end_ts']
 
-                        # Distribuer la durée de cette visite sur les créneaux horaires du jour sélectionné
                         for hour_of_day in range(24):
                             slot_start_this_hour = day_start_ts + pd.Timedelta(hours=hour_of_day)
                             slot_end_this_hour = slot_start_this_hour + pd.Timedelta(hours=1)
 
-                            # Calculer le chevauchement effectif
                             overlap_start = max(visit_actual_start, slot_start_this_hour)
                             overlap_end = min(visit_actual_end, slot_end_this_hour)
 
-                            if overlap_end > overlap_start: # Il y a un chevauchement
+                            if overlap_end > overlap_start:
                                 duration_in_slot_seconds = (overlap_end - overlap_start).total_seconds()
                                 hourly_total_duration_min[hour_of_day] += duration_in_slot_seconds / 60.0
                     
-                    # Les valeurs dans hourly_total_duration_min peuvent dépasser 60 si plusieurs visites
-                    # ou une longue visite contribuent à la même heure. L'axe Y les coupera à 60.
                     fig.add_trace(go.Bar(
-                        x=hourly_total_duration_min.index, # heures 0-23
+                        x=hourly_total_duration_min.index,
                         y=hourly_total_duration_min.values,
                         name="Durée aux toilettes (min/heure)",
                         marker_color=DATA1_COLOR 
                     ))
                     fig.update_layout(
-                        title=dict(text=f"Vue Horaire : Durée Toilettes le {selected_day}", x=TITLE_X, y=TITLE_Y),
+                        title=dict(text=f"Durée Horaire Toilettes le {selected_day}", x=TITLE_X, y=TITLE_Y),
                         xaxis=dict(title="Heure de la journée", tickmode='array',
                                    tickvals=list(range(24)),
                                    ticktext=[f"{h:02d}:00" for h in range(24)]),
-                        yaxis=dict(title="Durée aux toilettes (minutes)", 
-                                   range=[0, 15]), 
-                        yaxis2=dict(overlaying='y', side='right', showticklabels=False, showgrid=False, zeroline=False, title=None), # Cacher yaxis2
+                        yaxis=dict(title="Durée aux toilettes (minutes)", range=[0, 15]),
+                        yaxis2=dict(overlaying='y', side='right', showticklabels=False, showgrid=False, zeroline=False, title=None),
                         legend=LEGEND
                     )
-                else: # Pas de visites pertinentes pour ce jour
-                    fig.update_layout(title=dict(text=f"Day View: No toilet activity for {selected_day}"))
+                else:
+                    fig.update_layout(title=dict(text=f"Vue Journalière: Aucune activité pour {selected_day}"))
             except Exception as e:
                 print(f"Error processing hourly toilet view for {selected_day}: {e}")
-                import traceback
-                traceback.print_exc()
-                fig.update_layout(title=dict(text=f"Error loading toilet data for {selected_day}"))
-        else: # Données brutes vides ou colonne 'duration' manquante
-            fig.update_layout(title=dict(text="Day View: Raw toilet activity data (or 'duration' column) is not available"))
-            
-    elif scale == 'day' and not selected_day:
-        fig.update_layout(title=dict(text="Day View: Please select a day (after selecting a month)"))
-
-
+                fig.update_layout(title=dict(text=f"Erreur lors du chargement des données pour {selected_day}"))
+        else:
+            fig.update_layout(title=dict(text="Vue Journalière: Données brutes non disponibles"))
+    
     if not fig.data:
-        fig.update_layout(title=dict(text="Aucune donnée à afficher pour la sélection actuelle"))
+        fig.update_layout(title=dict(text="Aucune donnée à afficher"))
+    return fig
+
+
+def create_toilet_figure_2(raw_ts_data, aggregated_daily_data, monthly_data, daily_failure_markers,
+                                scale, selected_month, selected_day):
+    """Second chart: Passages totaux + Passages moyens/jour"""
+    fig = go.Figure()
+    fig.update_layout(
+        template='plotly_dark', paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=BACKGROUND_COLOR,
+        font=dict(color=TEXT_COLOR), title=dict(font=dict(color=TEXT_COLOR)),
+        legend=dict(font=dict(color=TEXT_COLOR)),
+        xaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
+        yaxis=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
+        yaxis2=dict(title=dict(font=dict(color=TEXT_COLOR)), tickfont=dict(color=TEXT_COLOR), gridcolor='rgba(255, 255, 255, 0.1)'),
+        margin = MARGIN_CHART,
+        hoverlabel=dict(font_size=16, font_color="white", namelength=-1)
+    )
+
+    if scale == 'year':
+        df_monthly = monthly_data
+        if not df_monthly.empty:
+            # Passages totaux (bars)
+            fig.add_trace(go.Scatter(
+                x=df_monthly['month_label'], 
+                y=df_monthly['activity_count_sum'], 
+                name="Passages totaux", 
+                mode='lines+markers', 
+                line=dict(color=DATA2_COLOR),
+                yaxis='y1'
+            ))
+            
+            # Passages moyens/jour (line)
+            if 'activity_count_mean_daily' in df_monthly.columns:
+                fig.add_trace(go.Scatter(
+                    x=df_monthly['month_label'], 
+                    y=df_monthly['activity_count_mean_daily'], 
+                    name="Passages moyens/jour", 
+                    yaxis='y2', 
+                    mode='lines+markers', 
+                    line=dict(color=DATA3_COLOR)
+                ))
+            
+            # Set y-axis ranges
+            total_max = df_monthly['activity_count_sum'].max() if pd.notna(df_monthly['activity_count_sum'].max()) else 5
+            mean_max = df_monthly['activity_count_mean_daily'].max() if 'activity_count_mean_daily' in df_monthly.columns and pd.notna(df_monthly['activity_count_mean_daily'].max()) else 5
+            
+            y1_max_val = max(5, total_max * 1.1) if total_max > 0 else 5
+            y2_max_val = max(5, mean_max * 1.1) if mean_max > 0 else 5
+
+            fig.update_layout(
+                title=dict(text="Passages Totaux et Moyens - Vue Annuelle", x=TITLE_X, y=TITLE_Y),
+                xaxis=dict(title=dict(text="Mois")),
+                yaxis=dict(title=dict(text="Passages totaux"), range=[0, y1_max_val], tickfont=dict(color=DATA2_COLOR)),
+                yaxis2=dict(title=dict(text="Passages moyens/jour"), range=[0, y2_max_val], tickfont=dict(color=DATA3_COLOR),
+                           overlaying='y', side='right', showgrid=False),
+                legend=LEGEND,
+                hovermode='x unified'
+            )
+        else:
+            fig.update_layout(title=dict(text="Vue Annuelle: Aucune donnée disponible"))
+
+    elif scale == 'month' and selected_month:
+        df_daily_activity = aggregated_daily_data[aggregated_daily_data['year_month'] == selected_month] if not aggregated_daily_data.empty else pd.DataFrame()
+        
+        if not df_daily_activity.empty:
+            fig.add_trace(go.Scatter(
+                x=df_daily_activity['date'], 
+                y=df_daily_activity['activity_count_sum'],
+                name="Passages par jour",
+                mode='lines+markers', 
+                line=dict(color=DATAMONTH2_COLOR)
+            ))
+        
+        if not df_daily_activity.empty:
+            all_relevant_dates = df_daily_activity['date'].tolist()
+            unique_display_dates = sorted(list(set(all_relevant_dates))) if all_relevant_dates else []
+
+            y1_max = df_daily_activity['activity_count_sum'].max() if not df_daily_activity.empty else 0
+            y1_range_max = max(10, y1_max * 1.1 if pd.notna(y1_max) else 10)
+
+            fig.update_layout(
+                title=dict(text=f"Passages par Jour - Vue Mensuelle: {selected_month}", x=TITLE_X, y=TITLE_Y),
+                xaxis=dict(title=dict(text="Jour"), tickformat='%d', tickmode='array',
+                          tickvals=unique_display_dates,
+                          ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
+                yaxis=dict(title=dict(text="Nombre de passages"), range=[0, y1_range_max], tickfont=dict(color=DATAMONTH2_COLOR)),
+                legend=LEGEND
+            )
+        else:
+            fig.update_layout(title=dict(text=f"Vue Mensuelle: Aucune donnée pour {selected_month}", x=TITLE_X, y=TITLE_Y))
+
+    elif scale == 'day' and selected_day:
+        # For daily view, we could show hourly passage counts
+        if not raw_ts_data.empty:
+            try:
+                day_start_ts = pd.to_datetime(selected_day + " 00:00:00")
+                day_end_ts = day_start_ts + pd.Timedelta(days=1)
+
+                # Filter visits for the selected day
+                visits_on_day = raw_ts_data[(raw_ts_data.index >= day_start_ts) & (raw_ts_data.index < day_end_ts)]
+                
+                if not visits_on_day.empty:
+                    hourly_counts = visits_on_day.groupby(visits_on_day.index.hour)['activity_count'].sum()
+                    
+                    # Create full 24-hour series
+                    hourly_passages = pd.Series(0, index=range(24))
+                    hourly_passages.loc[hourly_counts.index] = hourly_counts.values
+                    
+                    fig.add_trace(go.Bar(
+                        x=hourly_passages.index,
+                        y=hourly_passages.values,
+                        name="Passages par heure",
+                        marker_color=DATA2_COLOR
+                    ))
+                    
+                    fig.update_layout(
+                        title=dict(text=f"Passages Horaires le {selected_day}", x=TITLE_X, y=TITLE_Y),
+                        xaxis=dict(title="Heure de la journée", tickmode='array',
+                                   tickvals=list(range(24)),
+                                   ticktext=[f"{h:02d}:00" for h in range(24)]),
+                        yaxis=dict(title="Nombre de passages"),
+                        legend=LEGEND
+                    )
+                else:
+                    fig.update_layout(title=dict(text=f"Vue Journalière: Aucun passage pour {selected_day}"))
+            except Exception as e:
+                print(f"Error processing hourly passages for {selected_day}: {e}")
+                fig.update_layout(title=dict(text=f"Erreur lors du chargement des données pour {selected_day}"))
+        else:
+            fig.update_layout(title=dict(text="Vue Journalière: Données brutes non disponibles"))
+    
+    if not fig.data:
+        fig.update_layout(title=dict(text="Aucune donnée à afficher"))
     return fig
 
 # --- Standalone App Execution ---
@@ -436,7 +559,7 @@ if __name__ == '__main__':
         Input('day-dropdown', 'value') 
     )
     def update_graph_standalone(scale, selected_month, selected_day): 
-        return create_toilet_figure(
+        return create_toilet_figure_1(
             activity_raw_timestamps,    
             activity_daily_data,        
             activity_monthly_data,
