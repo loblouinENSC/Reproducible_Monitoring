@@ -11,9 +11,9 @@ BED_FAILURE_DAYS_FILE = 'sensors_failure_days/bed_failure_days.csv'
 APP_TITLE = "Sleeping Activity Dashboard"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
-DATA1_COLOR = '#36A0EB' #bleu - Pour la durée moyenne mensuelle, durée journalière
-DATA2_COLOR = '#F14864' #rouge - Pour les échecs capteur
-DATAMONTH_COLOR = '#36A0EB' # Utilisé pour la vue mensuelle/journalière (durée sommeil)
+DATA1_COLOR = '#36A0EB' #bleu 
+DATA2_COLOR = '#F14864' #rouge 
+DATAMONTH_COLOR = '#36A0EB' 
 SLEEP_HOURLY_COLOR = DATA1_COLOR
 OUTPUT_FOLDER = "new_processed_csv/new_sleep_csv"
 
@@ -28,8 +28,7 @@ TITLE_Y = 0.92
 def get_sleep_data():
     """Loads and preprocesses sleep and bed failure data."""
     try:
-        # Important: 'date' ici est un timestamp complet (date et heure)
-        # 'duration' est en secondes
+        # Important: 'date' ici est un timestamp complet (date et heure) et 'duration' est en secondes
         sleep_raw_timestamps = pd.read_csv(SLEEP_LOG_FILE, delimiter=';', decimal=",",
                                            names=["date", "annotation", "sleep_count", "duration"],
                                            parse_dates=["date"], index_col="date")
@@ -77,7 +76,7 @@ def get_sleep_data():
         sleep_daily = sleep_daily.astype({'date': 'datetime64[ns]', 'duration_sum': 'float64',
                                              'date_str': 'object', 'year_month': 'object'})
 
-    # -----Monthly Aggregation (basée sur les totaux journaliers en heures)-----
+    # -----Monthly Aggregation-----
     if not sleep_daily.empty:
         temp_daily_for_agg = sleep_daily[['date', 'duration_sum']].copy()
         temp_daily_for_agg['duration_sum_for_avg'] = temp_daily_for_agg['duration_sum'].replace(0, np.nan)
@@ -136,7 +135,6 @@ def get_sleep_data():
         print(f"Error saving CSVs: {e}")
 
     return sleep_raw_timestamps, sleep_daily, sleep_monthly, bed_failure_daily_markers
-
 
 
 
@@ -215,21 +213,20 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
                 xaxis=dict(title=dict(text="Jour"), tickformat='%d', tickmode='array',
                             tickvals=unique_display_dates,
                             ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
-                yaxis=dict(title=dict(text="Durée sommeil (h)"), range=[0, 13]), # Max 13h pour vue journalière
+                yaxis=dict(title=dict(text="Durée sommeil (h)"), range=[0, 13]), 
                 legend=LEGEND,
-                yaxis2=dict(overlaying='y', side='right', showticklabels=False, showgrid=False, zeroline=False, title=None) # Cacher yaxis2
+                yaxis2=dict(overlaying='y', side='right', showticklabels=False, showgrid=False, zeroline=False, title=None) 
             )       
 
     elif scale == 'month' and not selected_month:
         fig.update_layout(title=dict(text="Monthly View: Please select a month"))
 
     elif scale == 'day' and selected_day: # selected_day est une chaîne 'YYYY-MM-DD'
-        # raw_ts_data est sleep_raw_timestamps, son index est 'date' (début de l'événement de sommeil)
-        # et il doit contenir 'duration' (en secondes).
+
         if not raw_ts_data.empty and 'duration' in raw_ts_data.columns:
             try:
                 day_start_ts = pd.to_datetime(selected_day + " 00:00:00")
-                day_end_ts = day_start_ts + pd.Timedelta(days=1) # Fin de journée (exclusive)
+                day_end_ts = day_start_ts + pd.Timedelta(days=1) # Fin de journée 
 
                 sleep_periods_df = raw_ts_data.copy()
                 sleep_periods_df['event_start_ts'] = sleep_periods_df.index
@@ -273,7 +270,7 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
                         yaxis=dict(title="Durée de sommeil (minutes)", 
                                    range=[0, 60]), # Échelle fixe 0-60 minutes
                         legend=LEGEND,
-                        yaxis2=dict(overlaying='y', side='right', showticklabels=False, showgrid=False, zeroline=False, title=None) # Cacher yaxis2
+                        yaxis2=dict(overlaying='y', side='right', showticklabels=False, showgrid=False, zeroline=False, title=None) 
                     )
                 else:
                     fig.update_layout(title=dict(text=f"Day View: No sleep data for {selected_day}"))

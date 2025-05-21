@@ -252,10 +252,9 @@ def update_day_dropdown_options(selected_activity_type, selected_month, scale):
 
     if not df_daily_for_days.empty and 'date' in df_daily_for_days.columns and 'year_month' in df_daily_for_days.columns:
         if selected_month and df_daily_for_days['year_month'].notna().any():
-            # Ensure 'date' column is string for comparison if selected_month is string
-            # Or ensure selected_month is compatible with df_daily_for_days['year_month'] type
+
             days_in_month_df = df_daily_for_days[df_daily_for_days['year_month'] == selected_month]
-            # 'date' in days_in_month_df should be YYYY-MM-DD strings from process_daily_data
+    
             valid_dates = days_in_month_df['date'].dropna()
             if not valid_dates.empty:
                 available_days = sorted(valid_dates.unique()) 
@@ -328,10 +327,10 @@ def update_main_graph(activity_type, scale, selected_month, selected_day):
         
         if create_fn:
             fig = create_fn(
-                df1_pass,    # Raw/TS data
-                df2_pass,    # Daily aggregated data
-                df3_pass,    # Monthly aggregated data
-                df4_pass,    # Failure markers data
+                df1_pass,    
+                df2_pass,    
+                df3_pass,   
+                df4_pass,    
                 scale,
                 current_month,
                 current_day
@@ -372,7 +371,6 @@ def update_main_graph(activity_type, scale, selected_month, selected_day):
 
     return fig
 
-# New callback for second chart (toilet figure 2 and outings figure 2)
 @app.callback(
     Output('activity-graph-2', 'figure'),
     Input('activity-type-selector', 'value'),
@@ -396,10 +394,10 @@ def update_second_graph(activity_type, scale, selected_month, selected_day):
         try:
             # For toilet activity, use the second chart function
             fig = create_toilet_figure_2(
-                g_toilet_raw_ts_df,    # Raw/TS data
-                g_toilet_daily_agg_df,    # Daily aggregated data
-                g_toilet_monthly_agg_df,    # Monthly aggregated data
-                g_toilet_failure_markers_df,    # Failure markers data
+                g_toilet_raw_ts_df,    
+                g_toilet_daily_agg_df,    
+                g_toilet_monthly_agg_df,    
+                g_toilet_failure_markers_df,   
                 scale,
                 current_month,
                 current_day

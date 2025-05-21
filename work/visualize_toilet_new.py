@@ -11,9 +11,9 @@ TOILET_FAILURE_DAYS_FILE = 'sensors_failure_days/toilet_failure_days.csv'
 APP_TITLE = "Toilet Activity Viewer"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
-DATA1_COLOR = '#36A0EB' #blue - Monthly mean duration, Daily total duration, Hourly DURATION
-DATA2_COLOR = '#43D37B' # green - Monthly total count, Daily total count
-DATA3_COLOR = '#EB9636' # Orange - Monthly mean daily count
+DATA1_COLOR = '#36A0EB' #blue 
+DATA2_COLOR = '#43D37B' # green 
+DATA3_COLOR = '#EB9636' # Orange 
 FAILURE_MARKER_COLOR = '#F14864' # Rouge
 DATAMONTH_COLOR = DATA1_COLOR
 DATAMONTH2_COLOR = DATA2_COLOR
@@ -167,6 +167,7 @@ def get_toilet_data():
 
     return activity_raw_timestamps, activity_daily_for_graph, activity_monthly, toilet_failure_daily_markers
 
+
 # --- Figure Creation Functions for Split Charts ---
 def create_toilet_figure_1(raw_ts_data, aggregated_daily_data, monthly_data, daily_failure_markers,
                                           scale, selected_month, selected_day):
@@ -188,6 +189,7 @@ def create_toilet_figure_1(raw_ts_data, aggregated_daily_data, monthly_data, dai
         if not df_monthly.empty:
             #Met les pannes de capteur en pourcentage
             df_monthly['failure_percentage'] = (df_monthly['toilet_failure_days_sum'] / df_monthly['date'].dt.daysinmonth) * 100
+            
             # Duration moyenne (bars)
             fig.add_trace(go.Bar(x=df_monthly['month_label'], y=df_monthly['duration_min_mean'], name="Durée moyenne (min)", error_y=dict(type='data', array=df_monthly['duration_min_sem']), marker_color=DATA1_COLOR))
             
@@ -394,7 +396,7 @@ def create_toilet_figure_2(raw_ts_data, aggregated_daily_data, monthly_data, dai
             fig.update_layout(title=dict(text=f"Vue Mensuelle: Aucune donnée pour {selected_month}", x=TITLE_X, y=TITLE_Y))
 
     elif scale == 'day' and selected_day:
-        # For daily view, we could show hourly passage counts
+
         if not raw_ts_data.empty:
             try:
                 day_start_ts = pd.to_datetime(selected_day + " 00:00:00")
@@ -540,6 +542,7 @@ if __name__ == '__main__':
         Input('month-dropdown', 'value'),
         Input('day-dropdown', 'value') 
     )
+    
     def update_graph_standalone(scale, selected_month, selected_day): 
         return create_toilet_figure_1(
             activity_raw_timestamps,    
