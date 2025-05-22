@@ -6,7 +6,7 @@ from datetime import datetime as dt_datetime
 import os
 
 # --- Configuration ---
-OUTINGS_LOG_FILE = 'rule-outing.csv'
+OUTINGS_LOG_FILE = 'rules/rule-outing.csv'
 DOOR_FAILURE_DAYS_FILE = 'sensors_failure_days/door_failure_days.csv'
 APP_TITLE = "Outings Activity Viewer"
 TEXT_COLOR = 'white'

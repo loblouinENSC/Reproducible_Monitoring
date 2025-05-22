@@ -6,7 +6,7 @@ from datetime import datetime as dt_datetime
 import os
 
 # --- Configuration ---
-TOILET_LOG_FILE = 'rule-toilet.csv'
+TOILET_LOG_FILE = 'rules/rule-toilet.csv'
 TOILET_FAILURE_DAYS_FILE = 'sensors_failure_days/toilet_failure_days.csv'
 APP_TITLE = "Toilet Activity Viewer"
 TEXT_COLOR = 'white'

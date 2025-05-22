@@ -6,15 +6,17 @@ from datetime import datetime as dt_datetime
 import os
 
 # --- Configuration ---
-SLEEP_LOG_FILE = 'rule-sleep_quiet.csv'
+SLEEP_LOG_FILE = 'rules/rule-sleep_quiet.csv'
 BED_FAILURE_DAYS_FILE = 'sensors_failure_days/bed_failure_days.csv'
 APP_TITLE = "Sleeping Activity Dashboard"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
-DATA1_COLOR = '#36A0EB' #bleu 
-DATA2_COLOR = '#F14864' #rouge 
-DATAMONTH_COLOR = '#36A0EB' 
-SLEEP_HOURLY_COLOR = DATA1_COLOR
+DATA1_COLOR = '#36A0EB' #bleu
+DATA2_COLOR = '#F14864' #rouge
+DATA3_COLOR = '#36EB7B' #vert
+DATAMONTH_COLOR = '#36A0EB'
+SLEEP_HOURLY_COLOR = DATA1_COLOR # Pour 'Dort'
+AWAKE_HOURLY_COLOR = DATA3_COLOR # Pour 'Éveil'
 OUTPUT_FOLDER = "new_processed_csv/new_sleep_csv"
 
 # --- Graph Configuration ---
@@ -28,10 +30,9 @@ TITLE_Y = 0.92
 def get_sleep_data():
     """Loads and preprocesses sleep and bed failure data."""
     try:
-        # Important: 'date' ici est un timestamp complet (date et heure) et 'duration' est en secondes
-        sleep_raw_timestamps = pd.read_csv(SLEEP_LOG_FILE, delimiter=';', decimal=",",
-                                           names=["date", "annotation", "sleep_count", "duration"],
-                                           parse_dates=["date"], index_col="date")
+        #lecture du csv de sommeil
+        sleep_raw_timestamps = pd.read_csv(SLEEP_LOG_FILE, delimiter=';', decimal=",", names=["date", "annotation", "sleep_count", "duration"], parse_dates=["date"], index_col="date")
+        #ajout d'une colonne 'durationHr' pour la durée en heures
         sleep_raw_timestamps['durationHr'] = sleep_raw_timestamps['duration'] / 3600.0
     except FileNotFoundError:
         print(f"Error: '{SLEEP_LOG_FILE}' not found.")
@@ -74,7 +75,7 @@ def get_sleep_data():
     else:
         sleep_daily = pd.DataFrame(columns=['date', 'duration_sum', 'date_str', 'year_month'])
         sleep_daily = sleep_daily.astype({'date': 'datetime64[ns]', 'duration_sum': 'float64',
-                                             'date_str': 'object', 'year_month': 'object'})
+                                          'date_str': 'object', 'year_month': 'object'})
 
     # -----Monthly Aggregation-----
     if not sleep_daily.empty:
@@ -140,7 +141,7 @@ def get_sleep_data():
 
 # --- Figure Creation Function ---
 def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_failure_markers,
-                        scale, selected_month, selected_day):
+                         scale, selected_month, selected_day):
     """Creates the Plotly figure for sleep activity based on inputs."""
     fig = go.Figure()
     fig.update_layout(
@@ -190,90 +191,164 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
 
         all_relevant_dates = []
         if not df_daily_sleep.empty:
-            all_relevant_dates.extend(df_daily_sleep['date'].tolist()) 
+            all_relevant_dates.extend(df_daily_sleep['date'].tolist())
         if not df_daily_failure_markers_filtered.empty:
             all_relevant_dates.extend(df_daily_failure_markers_filtered['date'].tolist())
-        
+
         unique_display_dates = []
         if all_relevant_dates:
             unique_display_dates = sorted(list(set(all_relevant_dates)))
 
         if not df_daily_sleep.empty:
             fig.add_trace(go.Bar(x=df_daily_sleep['date'], y=df_daily_sleep['duration_sum'], name="Durée sommeil (h)", marker_color=DATAMONTH_COLOR))
-        
+
         if not df_daily_failure_markers_filtered.empty:
             fig.add_trace(go.Scatter(
                 x=df_daily_failure_markers_filtered['date'], y=[0.3] * len(df_daily_failure_markers_filtered),
                 name="Échec lit", mode='markers', marker=dict(color=DATA2_COLOR, size=10, symbol='x')
             ))
-        
+
         if not df_daily_sleep.empty or not df_daily_failure_markers_filtered.empty:
             fig.update_layout(
                 title=dict(text=f"Vue Journalière (par jour) : {selected_month}", x= TITLE_X, y = TITLE_Y),
                 xaxis=dict(title=dict(text="Jour"), tickformat='%d', tickmode='array',
-                            tickvals=unique_display_dates,
-                            ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
-                yaxis=dict(title=dict(text="Durée sommeil (h)"), range=[0, 13]), 
+                                tickvals=unique_display_dates,
+                                ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
+                yaxis=dict(title=dict(text="Durée sommeil (h)"), range=[0, 13]),
                 legend=LEGEND,
-                yaxis2=dict(overlaying='y', side='right', showticklabels=False, showgrid=False, zeroline=False, title=None) 
-            )       
+                yaxis2=dict(overlaying='y', side='right', showticklabels=False, showgrid=False, zeroline=False, title=None)
+            )
 
     elif scale == 'month' and not selected_month:
         fig.update_layout(title=dict(text="Monthly View: Please select a month"))
 
     elif scale == 'day' and selected_day: # selected_day est une chaîne 'YYYY-MM-DD'
-
         if not raw_ts_data.empty and 'duration' in raw_ts_data.columns:
             try:
                 day_start_ts = pd.to_datetime(selected_day + " 00:00:00")
-                day_end_ts = day_start_ts + pd.Timedelta(days=1) # Fin de journée 
+                day_end_ts = day_start_ts + pd.Timedelta(days=1)
 
-                sleep_periods_df = raw_ts_data.copy()
-                sleep_periods_df['event_start_ts'] = sleep_periods_df.index
-                sleep_periods_df['event_end_ts'] = sleep_periods_df['event_start_ts'] + pd.to_timedelta(sleep_periods_df['duration'], unit='s')
+                sleep_periods_raw = raw_ts_data.copy()
+                sleep_periods_raw['event_start_ts'] = sleep_periods_raw.index
+                sleep_periods_raw['event_end_ts'] = sleep_periods_raw['event_start_ts'] + pd.to_timedelta(sleep_periods_raw['duration'], unit='s')
 
-                relevant_sleep_periods = sleep_periods_df[
-                    (sleep_periods_df['event_start_ts'] < day_end_ts) &
-                    (sleep_periods_df['event_end_ts'] > day_start_ts)
-                ]
+                # Filter and normalize sleep periods to be within the selected day (00:00-24:00)
+                # Any sleep event that starts before day_start_ts or ends after day_end_ts needs to be trimmed.
+                sleep_periods_normalized = []
+                for _, row in sleep_periods_raw.iterrows():
+                    start_ts = max(row['event_start_ts'], day_start_ts)
+                    end_ts = min(row['event_end_ts'], day_end_ts)
+                    if start_ts < end_ts: # Ensure the segment has a positive duration within the day
+                        sleep_periods_normalized.append({'start': start_ts, 'end': end_ts})
 
-                hourly_total_duration_min = pd.Series(0.0, index=range(24))
+                # Sort periods by start time to process them chronologically
+                sleep_periods_normalized.sort(key=lambda x: x['start'])
 
-                if not relevant_sleep_periods.empty:
-                    for _, sleep_event in relevant_sleep_periods.iterrows():
-                        event_actual_start = sleep_event['event_start_ts']
-                        event_actual_end = sleep_event['event_end_ts']
+                # Merge overlapping sleep periods
+                merged_sleep_periods = []
+                if sleep_periods_normalized:
+                    current_merged_period = sleep_periods_normalized[0]
+                    for i in range(1, len(sleep_periods_normalized)):
+                        next_period = sleep_periods_normalized[i]
+                        # If next period overlaps or is contiguous with current_merged_period
+                        if next_period['start'] <= current_merged_period['end']:
+                            current_merged_period['end'] = max(current_merged_period['end'], next_period['end'])
+                        else:
+                            merged_sleep_periods.append(current_merged_period)
+                            current_merged_period = next_period
+                    merged_sleep_periods.append(current_merged_period) # Add the last merged period
 
-                        for hour_of_day in range(24):
-                            slot_start_this_hour = day_start_ts + pd.Timedelta(hours=hour_of_day)
-                            slot_end_this_hour = slot_start_this_hour + pd.Timedelta(hours=1)
+                Y_SLEEP = 0.75  # Position for 'Dort'
+                Y_AWAKE = 1.25  # Position for 'Éveil'
 
-                            overlap_start = max(event_actual_start, slot_start_this_hour)
-                            overlap_end = min(event_actual_end, slot_end_this_hour)
+                # --- Generate all segments (Sleep and Awake) ---
+                all_display_segments = []
+                current_time_pointer = day_start_ts
 
-                            if overlap_end > overlap_start:
-                                duration_in_slot_seconds = (overlap_end - overlap_start).total_seconds()
-                                hourly_total_duration_min[hour_of_day] += duration_in_slot_seconds / 60.0 # Conversion en minutes
+                for sleep_segment in merged_sleep_periods:
+                    # Add awake segment if there's a gap
+                    if current_time_pointer < sleep_segment['start']:
+                        all_display_segments.append({
+                            'start': current_time_pointer,
+                            'end': sleep_segment['start'],
+                            'state': 'awake'
+                        })
                     
-                    fig.add_trace(go.Bar(
-                        x=hourly_total_duration_min.index, # heures 0-23
-                        y=hourly_total_duration_min.values, # en minutes
-                        name="Durée sommeil (min/heure)",
-                        marker_color=SLEEP_HOURLY_COLOR
-                    ))
-                    fig.update_layout(
-                        title=dict(text=f"Vue Horaire : Sommeil le {selected_day}", x=TITLE_X, y=TITLE_Y),
-                        xaxis=dict(title="Heure de la journée",
-                                   tickmode='array',
-                                   tickvals=list(range(24)),
-                                   ticktext=[f"{h:02d}:00" for h in range(24)]),
-                        yaxis=dict(title="Durée de sommeil (minutes)", 
-                                   range=[0, 60]), # Échelle fixe 0-60 minutes
-                        legend=LEGEND,
-                        yaxis2=dict(overlaying='y', side='right', showticklabels=False, showgrid=False, zeroline=False, title=None) 
-                    )
-                else:
-                    fig.update_layout(title=dict(text=f"Day View: No sleep data for {selected_day}"))
+                    # Add sleep segment
+                    all_display_segments.append({
+                        'start': sleep_segment['start'],
+                        'end': sleep_segment['end'],
+                        'state': 'sleep'
+                    })
+                    current_time_pointer = sleep_segment['end']
+
+                # Add final awake segment if the day isn't fully covered
+                if current_time_pointer < day_end_ts:
+                    all_display_segments.append({
+                        'start': current_time_pointer,
+                        'end': day_end_ts,
+                        'state': 'awake'
+                    })
+
+                # Plot all collected segments
+                sleep_added_to_legend = False
+                awake_added_to_legend = False
+                for segment in all_display_segments:
+                    x_start_hour = (segment['start'] - day_start_ts).total_seconds() / 3600.0
+                    x_end_hour = (segment['end'] - day_start_ts).total_seconds() / 3600.0
+                    duration_segment_hr = (segment['end'] - segment['start']).total_seconds() / 3600.0
+
+                    if x_start_hour < x_end_hour: # Only plot if duration is positive
+                        if segment['state'] == 'sleep':
+                            fig.add_trace(go.Scatter(
+                                x=[x_start_hour, x_end_hour],
+                                y=[Y_SLEEP, Y_SLEEP],
+                                mode='lines',
+                                line=dict(width=20, color=SLEEP_HOURLY_COLOR),
+                                name="Sommeil",
+                                showlegend=not sleep_added_to_legend,
+                                hoverinfo='text',
+                                text=[
+                                    f"Sommeil: {segment['start'].strftime('%H:%M')} - {segment['end'].strftime('%H:%M')}<br>Durée: {duration_segment_hr:.2f}h"
+                                ]
+                            ))
+                            sleep_added_to_legend = True
+                        else: # segment['state'] == 'awake'
+                            fig.add_trace(go.Scatter(
+                                x=[x_start_hour, x_end_hour],
+                                y=[Y_AWAKE, Y_AWAKE],
+                                mode='lines',
+                                line=dict(width=20, color=AWAKE_HOURLY_COLOR),
+                                name="Éveil",
+                                showlegend=not awake_added_to_legend,
+                                hoverinfo='text',
+                                text=[
+                                    f"Éveil: {segment['start'].strftime('%H:%M')} - {segment['end'].strftime('%H:%M')}<br>Durée: {duration_segment_hr:.2f}h"
+                                ]
+                            ))
+                            awake_added_to_legend = True
+
+                fig.update_layout(
+                    title=dict(text=f"Vue Journalière (Gantt) : Sommeil et Éveil le {selected_day}", x=TITLE_X, y=TITLE_Y),
+                    xaxis=dict(
+                        title="Heure de la journée",
+                        tickmode='array',
+                        tickvals=list(range(0, 25, 2)),
+                        ticktext=[f"{h:02d}:00" for h in range(0, 25, 2)],
+                        range=[0, 24]
+                    ),
+                    yaxis=dict(
+                        title="État",
+                        tickmode='array',
+                        tickvals=[Y_SLEEP, Y_AWAKE],
+                        ticktext=["Dort", "Éveil"],
+                        range=[0.25, 1.75],
+                        showgrid=True,
+                        zeroline=False
+                    ),
+                    legend=LEGEND,
+                    hovermode='x unified'
+                )
             except Exception as e:
                 print(f"Error processing hourly sleep view for {selected_day}: {e}")
                 import traceback
@@ -281,7 +356,7 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
                 fig.update_layout(title=dict(text=f"Error loading sleep data for {selected_day}"))
         else:
             fig.update_layout(title=dict(text="Day View: Raw sleep data (or 'duration' column) is not available"))
-            
+
     elif scale == 'day' and not selected_day:
         fig.update_layout(title=dict(text="Day View: Please select a day (after selecting a month)"))
 
@@ -308,12 +383,12 @@ if __name__ == '__main__':
         html.H2(APP_TITLE, style={'textAlign': 'center', 'marginBottom': '30px'}),
         html.Div([
             html.Label("Select view scale:", style={'marginRight': '10px'}),
-            dcc.Dropdown( 
+            dcc.Dropdown(
                 id='scale-selector-sleep',
                 options=[
                     {'label': 'Year View (Monthly)', 'value': 'year'},
                     {'label': 'Month View (Daily)', 'value': 'month'},
-                    {'label': 'Day View (Hourly)', 'value': 'day'} 
+                    {'label': 'Day View (Hourly)', 'value': 'day'}
                 ],
                 value='year',
                 clearable=False,
@@ -332,7 +407,7 @@ if __name__ == '__main__':
             )
         ], style={'display': 'none', 'textAlign': 'center', 'marginBottom': '20px'}),
 
-        html.Div(id='day-dropdown-container-sleep', children=[ 
+        html.Div(id='day-dropdown-container-sleep', children=[
             html.Label("Select Day:", style={'marginRight': '10px'}),
             dcc.Dropdown(
                 id='day-dropdown-sleep',
@@ -363,7 +438,7 @@ if __name__ == '__main__':
         Output('day-dropdown-sleep', 'options'),
         Output('day-dropdown-sleep', 'value'),
         Input('month-dropdown-sleep', 'value'),
-        Input('scale-selector-sleep', 'value') 
+        Input('scale-selector-sleep', 'value')
     )
     def update_day_dropdown_options_sleep(selected_month, scale):
         if scale != 'day' or not selected_month:
@@ -374,18 +449,18 @@ if __name__ == '__main__':
         if not sleep_daily_data.empty and 'date_str' in sleep_daily_data.columns and 'year_month' in sleep_daily_data.columns:
             days_in_month_df = sleep_daily_data[sleep_daily_data['year_month'] == selected_month]
             valid_dates_str = days_in_month_df['date_str'].dropna().unique()
-            
+
             available_days_sorted = sorted(list(valid_dates_str))
-            
+
             options = []
-            for d_str in available_days_sorted: 
+            for d_str in available_days_sorted:
                 try:
                     dt_obj = pd.to_datetime(d_str)
-                    label = dt_obj.strftime('%d/%m') 
+                    label = dt_obj.strftime('%d/%m')
                     options.append({'label': label, 'value': d_str})
                 except ValueError:
                     options.append({'label': d_str, 'value': d_str})
-            
+
             if available_days_sorted:
                 value = available_days_sorted[0]
         return options, value
@@ -394,17 +469,17 @@ if __name__ == '__main__':
         Output('sleep-activity-graph', 'figure'),
         Input('scale-selector-sleep', 'value'),
         Input('month-dropdown-sleep', 'value'),
-        Input('day-dropdown-sleep', 'value') 
+        Input('day-dropdown-sleep', 'value')
     )
-    def update_graph_standalone(scale, selected_month, selected_day): 
+    def update_graph_standalone(scale, selected_month, selected_day):
         return create_sleep_figure(
-            sleep_raw_ts_data,    
-            sleep_daily_data,     
+            sleep_raw_ts_data,
+            sleep_daily_data,
             sleep_monthly_data,
             sleep_bed_failure_daily_markers,
             scale,
             selected_month,
-            selected_day          
+            selected_day
         )
 
     app.run(debug=True)
