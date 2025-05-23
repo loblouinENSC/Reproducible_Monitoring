@@ -2,17 +2,17 @@ import pandas as pd
 import plotly.graph_objs as go
 from dash import Dash, dcc, html, Input, Output
 import numpy as np
-from datetime import datetime as dt_datetime 
+from datetime import datetime as dt_datetime
 import os
+import sys # Import the sys module to access command-line arguments
 
-# --- Configuration ---
+# --- Configuration (Participant number will be set dynamically) ---
+
 PARTICIPANT_NUMBER = 1
 
-
-
-TOILET_LOG_FILE = f'participant_{PARTICIPANT_NUMBER}/rules/rule-toilet.csv'
-TOILET_FAILURE_DAYS_FILE = f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/toilet_failure_days.csv'
-OUTPUT_FOLDER = f'participant_{PARTICIPANT_NUMBER}/new_processed_csv/new_toilet_csv'
+TOILET_LOG_FILE = ''
+TOILET_FAILURE_DAYS_FILE = ''
+OUTPUT_FOLDER = ''
 
 APP_TITLE = "Toilet Activity Viewer"
 TEXT_COLOR = 'white'
@@ -24,17 +24,32 @@ FAILURE_MARKER_COLOR = '#F14864' # Rouge
 DATAMONTH_COLOR = DATA1_COLOR
 DATAMONTH2_COLOR = DATA2_COLOR
 
-
-
 # --- Graph Configuration ---
 LEGEND = dict(orientation="h",yanchor="bottom",y=1.1,xanchor="center",x=0.5)
 MARGIN_CHART = dict(l=70, r=70, b=70, t=150, pad=3)
 TITLE_X = 0.06
 TITLE_Y = 0.92
 
-
 # --- Data Loading and Processing Function ---
-def get_toilet_data():
+def get_toilet_data(participant_num):
+
+    """
+    Loads and processes toilet activity data for a given participant.
+    
+    Args:
+        participant_num (int): The participant number.
+    
+    Returns:
+        tuple: A tuple containing raw timestamps, daily aggregated data, 
+               monthly aggregated data, and daily failure markers.
+    """
+    global TOILET_LOG_FILE, TOILET_FAILURE_DAYS_FILE, OUTPUT_FOLDER, PARTICIPANT_NUMBER
+    
+    PARTICIPANT_NUMBER = participant_num
+    TOILET_LOG_FILE = f'participant_{PARTICIPANT_NUMBER}/rules/rule-toilet.csv'
+    TOILET_FAILURE_DAYS_FILE = f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/toilet_failure_days.csv'
+    OUTPUT_FOLDER = f'participant_{PARTICIPANT_NUMBER}/new_processed_csv/new_toilet_csv'
+
     try:
         activity_raw_timestamps = pd.read_csv(
             TOILET_LOG_FILE, delimiter=';', decimal=",",
@@ -45,12 +60,12 @@ def get_toilet_data():
     except FileNotFoundError:
         print(f"Error: '{TOILET_LOG_FILE}' not found.")
         activity_raw_timestamps = pd.DataFrame(columns=["annotation", "activity_count", "duration", "duration_min"],
-                                                index=pd.to_datetime([]))
+                                                 index=pd.to_datetime([]))
         activity_raw_timestamps.index.name = 'date'
     except Exception as e:
         print(f"Error loading {TOILET_LOG_FILE}: {e}")
         activity_raw_timestamps = pd.DataFrame(columns=["annotation", "activity_count", "duration", "duration_min"],
-                                                index=pd.to_datetime([]))
+                                                 index=pd.to_datetime([]))
         activity_raw_timestamps.index.name = 'date'
 
     # --- Daily Aggregation ---
@@ -67,7 +82,7 @@ def get_toilet_data():
         activity_daily_for_graph['date_str'] = activity_daily_for_graph['date'].dt.strftime('%Y-%m-%d')
     else:
         activity_daily_intermediate = pd.DataFrame(columns=['activity_count_sum_daily', 'duration_min_sum_daily'],
-                                                   index=pd.to_datetime([]))
+                                                     index=pd.to_datetime([]))
         activity_daily_intermediate.index.name = 'date'
         activity_daily_for_graph = pd.DataFrame(columns=['date', 'activity_count_sum', 'duration_min_sum', 'year_month', 'date_str'])
         activity_daily_for_graph = activity_daily_for_graph.astype({'date': 'datetime64[ns]'})
@@ -145,7 +160,7 @@ def get_toilet_data():
             activity_monthly[col] = np.nan if 'mean' in col or 'sem' in col else 0
     else:
         cols_to_add = ['date', 'activity_count_sum', 'duration_min_mean', 'duration_min_sem',
-                       'days_in_month', 'activity_count_mean_daily', 'toilet_failure_days_sum']
+                        'days_in_month', 'activity_count_mean_daily', 'toilet_failure_days_sum']
         for col in cols_to_add:
             dtype = 'float64' if 'mean' in col or 'sem' in col else 'int64'
             if col == 'date':
@@ -170,13 +185,11 @@ def get_toilet_data():
     except Exception as e:
         print(f"Error saving CSVs: {e}")
 
-
     return activity_raw_timestamps, activity_daily_for_graph, activity_monthly, toilet_failure_daily_markers
-
 
 # --- Figure Creation Functions for Split Charts ---
 def create_toilet_figure_1(raw_ts_data, aggregated_daily_data, monthly_data, daily_failure_markers,
-                                          scale, selected_month, selected_day):
+                           scale, selected_month, selected_day):
     """First chart: Duration moyenne + Jours échec capteur"""
     fig = go.Figure()
     fig.update_layout(
@@ -212,7 +225,7 @@ def create_toilet_figure_1(raw_ts_data, aggregated_daily_data, monthly_data, dai
                 xaxis=dict(title=dict(text="Mois")),
                 yaxis=dict(title=dict(text="Durée moyenne (min)"), tickfont=dict(color=DATA1_COLOR)),
                 yaxis2=dict(title=dict(text="Jours échec capteur (%)"), tickfont=dict(color=FAILURE_MARKER_COLOR), 
-                           overlaying='y', side='right', range=[0, 100], showgrid=False),
+                            overlaying='y', side='right', range=[0, 100], showgrid=False),
                 legend=LEGEND,
                 barmode='group',
                 bargap=0.15,
@@ -248,11 +261,11 @@ def create_toilet_figure_1(raw_ts_data, aggregated_daily_data, monthly_data, dai
             fig.update_layout(
                 title=dict(text=f"Durée et Échecs Capteur - Vue Mensuelle: {selected_month}", x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Jour"), tickformat='%d', tickmode='array',
-                          tickvals=unique_display_dates,
-                          ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
+                            tickvals=unique_display_dates,
+                            ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
                 yaxis=dict(title=dict(text="Durée totale (min)"), range=[0, y1_range_max], tickfont=dict(color=DATAMONTH_COLOR)),
                 yaxis2=dict(title=dict(text="Échec capteur"), tickfont=dict(color=FAILURE_MARKER_COLOR),
-                           overlaying='y', side='right', range=[0, 2], showgrid=False),
+                            overlaying='y', side='right', range=[0, 2], showgrid=False),
                 legend=LEGEND
             )
         else:
@@ -320,7 +333,7 @@ def create_toilet_figure_1(raw_ts_data, aggregated_daily_data, monthly_data, dai
 
 
 def create_toilet_figure_2(raw_ts_data, aggregated_daily_data, monthly_data, daily_failure_markers,
-                                scale, selected_month, selected_day):
+                           scale, selected_month, selected_day):
     """Second chart: Passages totaux + Passages moyens/jour"""
     fig = go.Figure()
     fig.update_layout(
@@ -370,7 +383,7 @@ def create_toilet_figure_2(raw_ts_data, aggregated_daily_data, monthly_data, dai
                 xaxis=dict(title=dict(text="Mois")),
                 yaxis=dict(title=dict(text="Passages totaux"), range=[0, y1_max_val], tickfont=dict(color=DATA2_COLOR)),
                 yaxis2=dict(title=dict(text="Passages moyens/jour"), range=[0, 100], tickfont=dict(color=DATA3_COLOR),
-                           overlaying='y', side='right', showgrid=False),
+                            overlaying='y', side='right', showgrid=False),
                 legend=LEGEND,
                 hovermode='x unified'
             )
@@ -393,8 +406,8 @@ def create_toilet_figure_2(raw_ts_data, aggregated_daily_data, monthly_data, dai
             fig.update_layout(
                 title=dict(text=f"Passages par Jour - Vue Mensuelle: {selected_month}", x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Jour"), tickformat='%d', tickmode='array',
-                          tickvals=unique_display_dates,
-                          ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
+                            tickvals=unique_display_dates,
+                            ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
                 yaxis=dict(title=dict(text="Nombre de passages"), range=[0, y1_range_max], tickfont=dict(color=DATAMONTH2_COLOR)),
                 legend=LEGEND
             )
@@ -445,119 +458,3 @@ def create_toilet_figure_2(raw_ts_data, aggregated_daily_data, monthly_data, dai
         fig.update_layout(title=dict(text="Aucune donnée à afficher"))
     return fig
 
-# --- Standalone App Execution ---
-if __name__ == '__main__':
-    activity_raw_timestamps, activity_daily_data, activity_monthly_data, toilet_failure_markers_data = get_toilet_data()
-
-    available_months = []
-    temp_months_set = set()
-    if not activity_daily_data.empty and 'year_month' in activity_daily_data.columns:
-        temp_months_set.update(activity_daily_data['year_month'].dropna().unique())
-    if temp_months_set:
-        available_months = sorted(list(temp_months_set))
-
-    app = Dash(__name__)
-    app.title = APP_TITLE
-    app.layout = html.Div(style={'backgroundColor': BACKGROUND_COLOR, 'color': TEXT_COLOR, 'padding': '20px'}, children=[
-        html.H2(APP_TITLE, style={'textAlign': 'center', 'marginBottom': '30px'}),
-        html.Div([
-            html.Label("Select view scale:", style={'marginRight': '10px'}),
-            dcc.Dropdown( 
-                id='scale-selector', 
-                options=[
-                    {'label': 'Year View (Monthly)', 'value': 'year'},
-                    {'label': 'Month View (Daily)', 'value': 'month'},
-                    {'label': 'Day View (Hourly)', 'value': 'day'} 
-                ],
-                value='year',
-                clearable=False,
-                style={'width': '250px', 'display': 'inline-block', 'color': '#333'}
-            ),
-        ], style={'marginBottom': '20px', 'textAlign': 'center'}),
-
-        html.Div(id='month-dropdown-container', children=[
-            html.Label("Select Month:", style={'marginRight': '10px'}),
-            dcc.Dropdown(
-                id='month-dropdown',
-                options=[{'label': m, 'value': m} for m in available_months],
-                value=available_months[0] if len(available_months) > 0 else None,
-                clearable=False,
-                style={'width': '200px', 'display': 'inline-block', 'color': '#333'}
-            )
-        ], style={'display': 'none', 'textAlign': 'center', 'marginBottom': '20px'}),
-
-        html.Div(id='day-dropdown-container', children=[ 
-            html.Label("Select Day:", style={'marginRight': '10px'}),
-            dcc.Dropdown(
-                id='day-dropdown',
-                clearable=False,
-                style={'width': '200px', 'display': 'inline-block', 'color': '#333'}
-            )
-        ], style={'display': 'none', 'textAlign': 'center', 'marginBottom': '20px'}),
-
-        dcc.Graph(id='activity-graph', style={'height': '60vh'})
-    ])
-
-    @app.callback(
-        Output('month-dropdown-container', 'style'),
-        Output('day-dropdown-container', 'style'),
-        Input('scale-selector', 'value')
-    )
-    def toggle_dropdown_visibility(scale): 
-        month_style = {'display': 'none', 'textAlign': 'center', 'marginBottom': '20px'}
-        day_style = {'display': 'none', 'textAlign': 'center', 'marginBottom': '20px'}
-        if scale == 'month':
-            month_style['display'] = 'block'
-        elif scale == 'day':
-            month_style['display'] = 'block'
-            day_style['display'] = 'block'
-        return month_style, day_style
-
-    @app.callback(
-        Output('day-dropdown', 'options'),
-        Output('day-dropdown', 'value'),
-        Input('month-dropdown', 'value'),
-        Input('scale-selector', 'value')
-    )
-    def update_day_dropdown_options(selected_month, scale): 
-        if scale != 'day' or not selected_month:
-            return [], None
-        options = []
-        value = None
-        if not activity_daily_data.empty and 'date_str' in activity_daily_data.columns and 'year_month' in activity_daily_data.columns:
-            days_in_month_df = activity_daily_data[activity_daily_data['year_month'] == selected_month]
-            valid_dates_str = days_in_month_df['date_str'].dropna().unique() 
-
-            available_days_sorted = sorted(list(valid_dates_str))
-            options = []
-            for d_str in available_days_sorted:
-                try:
-                    dt_obj = pd.to_datetime(d_str)
-                    label = dt_obj.strftime('%d/%m') 
-                    options.append({'label': label, 'value': d_str}) 
-                except ValueError: 
-                    options.append({'label': d_str, 'value': d_str})
-
-            if available_days_sorted:
-                value = available_days_sorted[0]
-        return options, value
-
-    @app.callback(
-        Output('activity-graph', 'figure'),
-        Input('scale-selector', 'value'),
-        Input('month-dropdown', 'value'),
-        Input('day-dropdown', 'value') 
-    )
-    
-    def update_graph_standalone(scale, selected_month, selected_day): 
-        return create_toilet_figure_1(
-            activity_raw_timestamps,    
-            activity_daily_data,        
-            activity_monthly_data,
-            toilet_failure_markers_data,
-            scale,
-            selected_month,
-            selected_day                
-        )
-
-    app.run(debug=True)

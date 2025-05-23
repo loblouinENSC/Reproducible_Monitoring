@@ -31,7 +31,7 @@ body {
 }
 
 #control-container {
-    width: 87.5%;
+    width: 95%;
     height: auto;
     margin: auto;
     margin-top: 5%;
@@ -41,7 +41,7 @@ body {
     background-color: rgba(30, 30, 40, 0.8);
     border-radius: 12px;
     display: flex;
-    gap: 7%;
+    gap: 4%;
     align-items: center;
 
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
@@ -73,6 +73,10 @@ body {
     width: 125px;
 }
 
+#participant-selector {
+    width: 120px;
+}
+
 #month-dropdown {
     width: 100px;
 }
@@ -80,6 +84,8 @@ body {
 #day-dropdown {
     width: 75px;
 }
+
+
 
 /*
 #scale-selector .radio-items {

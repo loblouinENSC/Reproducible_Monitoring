@@ -1,22 +1,20 @@
 import pandas as pd
 import plotly.graph_objs as go
-from dash import Dash, dcc, html, Input, Output
+# La partie Dash n'est pas nécessaire ici si ce fichier est importé par dashBoardManager.py
+# from dash import Dash, dcc, html, Input, Output
 import numpy as np
-from datetime import datetime as dt_datetime 
+from datetime import datetime as dt_datetime
 import os
+import sys # Import sys to access command line arguments
 
-# --- Configuration --- remplacer le 1 par le numéro de participant (a mettre en paramètre)
-PARTICIPANT_NUMBER = 1
+PARTICIPANT_NUMBER = 1 
 
-OUTINGS_LOG_FILE = f'participant_{PARTICIPANT_NUMBER}/rules/rule-outing.csv'
-DOOR_FAILURE_DAYS_FILE = f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/door_failure_days.csv'
-OUTPUT_FOLDER = f'participant_{PARTICIPANT_NUMBER}/new_processed_csv/new_outing_csv'
 APP_TITLE = "Outings Activity Viewer"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
-DATA1_COLOR = '#36A0EB' #bleu 
-DATA2_COLOR = '#36EB7B' #vert 
-DATA3_COLOR = '#F14864' #rouge 
+DATA1_COLOR = '#36A0EB' #bleu
+DATA2_COLOR = '#36EB7B' #vert
+DATA3_COLOR = '#F14864' #rouge
 
 #--- Graph Configuration ---
 LEGEND = dict(orientation="h",yanchor="bottom",y=1.1,xanchor="center",x=0.5)
@@ -25,21 +23,30 @@ TITLE_X = 0.06
 TITLE_Y = 0.92
 
 # --- Data Loading and Processing Function ---
-def get_outings_data():
+# La fonction get_outings_data prend maintenant PARTICIPANT_NUMBER en paramètre
+def get_outings_data(participant_number):
+
+    PARTICIPANT_NUMBER = participant_number
+
+    # Définition des chemins de fichiers en utilisant le paramètre PARTICIPANT_NUMBER
+    outings_log_file = f'participant_{PARTICIPANT_NUMBER}/rules/rule-outing.csv'
+    door_failure_days_file = f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/door_failure_days.csv'
+    output_folder = f'participant_{PARTICIPANT_NUMBER}/new_processed_csv/new_outing_csv'
+
     try:
-        activity_raw = pd.read_csv(OUTINGS_LOG_FILE, delimiter=';', decimal=",",
-                                   names=["date", "annotation", "activity_count", "duration"],
-                                   parse_dates=["date"], index_col="date")
+        activity_raw = pd.read_csv(outings_log_file, delimiter=';', decimal=",",
+                                     names=["date", "annotation", "activity_count", "duration"],
+                                     parse_dates=["date"], index_col="date")
         activity_raw['durationHours'] = activity_raw['duration'] / 3600.0
     except FileNotFoundError:
-        print(f"Error: '{OUTINGS_LOG_FILE}' not found.")
+        print(f"Error: '{outings_log_file}' not found for participant {PARTICIPANT_NUMBER}.")
         activity_raw = pd.DataFrame(columns=["annotation", "activity_count", "duration", "durationHours"],
-                                    index=pd.to_datetime([]))
+                                     index=pd.to_datetime([]))
         activity_raw.index.name = 'date'
     except Exception as e:
-        print(f"Error loading {OUTINGS_LOG_FILE}: {e}")
+        print(f"Error loading {outings_log_file} for participant {PARTICIPANT_NUMBER}: {e}")
         activity_raw = pd.DataFrame(columns=["annotation", "activity_count", "duration", "durationHours"],
-                                    index=pd.to_datetime([]))
+                                     index=pd.to_datetime([]))
         activity_raw.index.name = 'date'
 
     door_failure_daily_markers = pd.DataFrame(columns=['date'])
@@ -47,7 +54,7 @@ def get_outings_data():
     door_failure_source_for_monthly_agg.index.name = 'date'
     try:
         failure_dates_df = pd.read_csv(
-            DOOR_FAILURE_DAYS_FILE, header=None, names=['date'], parse_dates=[0], comment='#'
+            door_failure_days_file, header=None, names=['date'], parse_dates=[0], comment='#'
         )
         door_failure_daily_markers = failure_dates_df[['date']].dropna(subset=['date']).copy()
         door_failure_daily_markers['date'] = pd.to_datetime(door_failure_daily_markers['date'], errors='coerce')
@@ -57,14 +64,14 @@ def get_outings_data():
             temp_df_monthly['failure_count'] = 1
             door_failure_source_for_monthly_agg = temp_df_monthly.set_index(pd.to_datetime(temp_df_monthly['date']))
     except FileNotFoundError:
-        print(f"Avertissement : Fichier '{DOOR_FAILURE_DAYS_FILE}' non trouvé.")
+        print(f"Avertissement : Fichier '{door_failure_days_file}' non trouvé pour participant {PARTICIPANT_NUMBER}.")
     except pd.errors.EmptyDataError:
-        print(f"Avertissement : Fichier '{DOOR_FAILURE_DAYS_FILE}' est vide.")
+        print(f"Avertissement : Fichier '{door_failure_days_file}' est vide pour participant {PARTICIPANT_NUMBER}.")
     except Exception as e:
-        print(f"Erreur lors du chargement de '{DOOR_FAILURE_DAYS_FILE}': {e}")
+        print(f"Erreur lors du chargement de '{door_failure_days_file}' pour participant {PARTICIPANT_NUMBER}: {e}")
 
     # --- Processed Outings (for hourly view) and Daily Aggregation ---
-    processed_outings_list = [] 
+    processed_outings_list = []
     outings_daily_new = pd.DataFrame(columns=['date', 'duration_hours_sum', 'activity_count_sum', 'year_month', 'date_str'])
     outings_daily_new = outings_daily_new.astype({
         'date': 'datetime64[ns]', 'duration_hours_sum': 'float64',
@@ -83,12 +90,12 @@ def get_outings_data():
 
                 actual_duration_hours = row['durationHours']
                 if pd.isna(actual_duration_hours) or actual_duration_hours <= 0:
-                     actual_duration_hours = (end_ts - start_ts).total_seconds() / 3600.0
+                   actual_duration_hours = (end_ts - start_ts).total_seconds() / 3600.0
 
                 if actual_duration_hours > 0:
                     processed_outings_list.append({'start_ts': start_ts, 'end_ts': end_ts, 'duration_hours': actual_duration_hours})
                 current_outing_start_info = None
-        
+
         # Determine overall date range for daily aggregation
         min_date_overall_activity = activity_sorted.index.min().normalize() if not activity_sorted.index.empty else None
         max_date_overall_activity = activity_sorted.index.max().normalize() if not activity_sorted.index.empty else None
@@ -111,7 +118,7 @@ def get_outings_data():
                     day_of_completion = end_actual_ts.normalize()
                     if day_of_completion in daily_completed_outings_count.index:
                         daily_completed_outings_count[day_of_completion] += 1
-                    
+
                     current_day_processing_norm = start_actual_ts.normalize()
                     while current_day_processing_norm <= end_actual_ts.normalize():
                         day_loop_start_ts = current_day_processing_norm
@@ -130,10 +137,10 @@ def get_outings_data():
                         # Safety break for very long outings or potential infinite loops with tiny durations
                         if current_day_processing_norm > end_actual_ts.normalize() + pd.Timedelta(days=2) and duration_in_day_hours <=0.0001:
                             break
-            
+
             if not daily_hours_sum.empty:
                 outings_daily_new = pd.DataFrame({
-                    'date': daily_hours_sum.index, 
+                    'date': daily_hours_sum.index,
                     'duration_hours_sum': daily_hours_sum.values,
                     'activity_count_sum': daily_completed_outings_count.reindex(daily_hours_sum.index, fill_value=0).values
                 })
@@ -146,7 +153,7 @@ def get_outings_data():
         processed_outings_df['end_ts'] = pd.to_datetime(processed_outings_df['end_ts'])
 
 
-    # --- Monthly Aggregation --- 
+    # --- Monthly Aggregation ---
     activity_completed_events = activity_raw[(activity_raw['activity_count'] == 0) & activity_raw['durationHours'].notna() & (activity_raw['durationHours'] > 0)].copy()
 
     if not activity_completed_events.empty:
@@ -165,7 +172,7 @@ def get_outings_data():
         door_failure_monthly_agg = door_failure_source_for_monthly_agg.resample('ME').agg(
             door_failure_days_sum_monthly=('failure_count', 'sum')
         )
-    
+
     outings_monthly = pd.merge(outings_monthly_agg, door_failure_monthly_agg, left_index=True, right_index=True, how='outer')
     if not outings_monthly.empty:
         outings_monthly.index = pd.to_datetime(outings_monthly.index)
@@ -205,25 +212,28 @@ def get_outings_data():
             door_failure_daily_markers['year_month'] = pd.Series(dtype='str')
 
     # --- Create Output Folder and Save CSVs ---
+    # Utilisez le output_folder basé sur le PARTICIPANT_NUMBER
     try:
-        os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-        processed_outings_df.to_csv(os.path.join(OUTPUT_FOLDER, "processed_outings_df.csv"), index=False)
-        outings_daily_new.to_csv(os.path.join(OUTPUT_FOLDER, "outings_daily_activity.csv"), index=False)
-        outings_monthly.to_csv(os.path.join(OUTPUT_FOLDER, "outings_monthly_activity.csv"), index=False)
-        door_failure_daily_markers.to_csv(os.path.join(OUTPUT_FOLDER, "door_sensor_failure_days.csv"), index=False)
-        print("CSV files saved in folder:", OUTPUT_FOLDER)
+        os.makedirs(output_folder, exist_ok=True)
+        processed_outings_df.to_csv(os.path.join(output_folder, "processed_outings_df.csv"), index=False)
+        outings_daily_new.to_csv(os.path.join(output_folder, "outings_daily_activity.csv"), index=False)
+        outings_monthly.to_csv(os.path.join(output_folder, "outings_monthly_activity.csv"), index=False)
+        door_failure_daily_markers.to_csv(os.path.join(output_folder, "door_sensor_failure_days.csv"), index=False)
+        print("CSV files saved in folder:", output_folder)
     except Exception as e:
         print(f"Error saving CSVs: {e}")
-
-
 
     return processed_outings_df, outings_daily_new, outings_monthly, door_failure_daily_markers
 
 
 # --- Figure Creation Function ---
 def create_outings_figure_1(processed_outings_data, aggregated_daily_data, monthly_data, daily_failure_markers,
-                          scale, selected_month, selected_day): 
+                            scale, selected_month, selected_day): # Ajout du paramètre PARTICIPANT_NUMBER
     fig = go.Figure()
+
+    # Ajout du numéro de participant au titre
+    title_suffix = f" (Participant {PARTICIPANT_NUMBER})" if PARTICIPANT_NUMBER else ""
+
     fig.update_layout(
         template='plotly_dark', paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=BACKGROUND_COLOR,
         font=dict(color=TEXT_COLOR), title=dict(font=dict(color=TEXT_COLOR)),
@@ -243,13 +253,13 @@ def create_outings_figure_1(processed_outings_data, aggregated_daily_data, month
             fig.add_trace(go.Bar(x=df_monthly['month_label'], y=df_monthly['duration_hours_mean'], name="Durée moy. sortie (heures)", error_y=dict(type='data', array=df_monthly['duration_hours_sem']), marker_color=DATA1_COLOR))
             if 'door_failure_days_sum_monthly' in df_monthly.columns:
                 fig.add_trace(go.Scatter(x=df_monthly['month_label'], y=df_monthly['failure_percentage'],yaxis='y2', name="Jours échec porte (%)", mode='lines+markers', line=dict(color=DATA3_COLOR, dash='dot')))
-            
+
             y2_max_val = 5
             if 'failure_percentage' in df_monthly.columns and pd.notna(df_monthly['failure_percentage'].max()):
                 y2_max_val = max(5, df_monthly['failure_percentage'].max() * 1.1)
 
             fig.update_layout(
-                title=dict(text="Activité Sorties : Durée moyenne et Jours échec capteur (Vue Annuelle)", x=TITLE_X, y=TITLE_Y),
+                title=dict(text=f"Activité Sorties : Durée moyenne et Jours échec capteur (Vue Annuelle){title_suffix}", x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Mois")),
                 yaxis=dict(title=dict(text="Durée moyenne sortie (heures)"), tickfont=dict(color=DATA1_COLOR), range=[0, 105]),
                 yaxis2=dict(title=dict(text="Jours échec porte (%)"), tickfont=dict(color=DATA3_COLOR), showgrid=False, range=[0,y2_max_val]),
@@ -257,7 +267,7 @@ def create_outings_figure_1(processed_outings_data, aggregated_daily_data, month
                 hovermode='x unified'
             )
         else:
-            fig.update_layout(title=dict(text="Outings: No yearly data available"))
+            fig.update_layout(title=dict(text=f"Outings: No yearly data available{title_suffix}"))
 
     elif scale == 'month' and selected_month:
         # aggregated_daily_data is outings_daily_new, has 'year_month', 'date' (datetime), 'duration_hours_sum', 'activity_count_sum'
@@ -265,7 +275,7 @@ def create_outings_figure_1(processed_outings_data, aggregated_daily_data, month
         df_daily_failure_filtered = pd.DataFrame()
         if not daily_failure_markers.empty and 'year_month' in daily_failure_markers.columns:
             df_daily_failure_filtered = daily_failure_markers[daily_failure_markers['year_month'] == selected_month]
-        
+
         all_relevant_dates = []
         if not df_daily_activity.empty: all_relevant_dates.extend(df_daily_activity['date'].tolist())
         if not df_daily_failure_filtered.empty: all_relevant_dates.extend(df_daily_failure_filtered['date'].tolist())
@@ -275,28 +285,28 @@ def create_outings_figure_1(processed_outings_data, aggregated_daily_data, month
             fig.add_trace(go.Bar(x=df_daily_activity['date'], y=df_daily_activity['duration_hours_sum'], name="Temps dehors / jour (heures)", marker_color=DATA1_COLOR))
         if not df_daily_failure_filtered.empty:
             fig.add_trace(go.Scatter(x=df_daily_failure_filtered['date'], y=[0.1] * len(df_daily_failure_filtered), name="Échec porte", mode='markers', marker=dict(color=DATA3_COLOR, size=10, symbol='x'), yaxis='y2'))
-        
+
         if not df_daily_activity.empty or not df_daily_failure_filtered.empty:
-            y2_range_max = 2 
+            y2_range_max = 2
             fig.update_layout(
-                title=dict(text=f"Activité Sorties : Durée et Échecs capteur (Vue Journalière) - {selected_month}", x=TITLE_X, y=TITLE_Y),
+                title=dict(text=f"Activité Sorties : Durée et Échecs capteur (Vue Journalière) - {selected_month}{title_suffix}", x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Jour"), tickformat='%d', tickmode='array', tickvals=unique_display_dates, ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
                 yaxis=dict(title=dict(text="Temps dehors / jour (heures)"), range=[0, 24.5]),
                 yaxis2=dict(title=dict(text="Échec porte"), range=[0, y2_range_max], showgrid=False),
                 legend=LEGEND
             )
         else:
-            fig.update_layout(title=dict(text=f"Outings: No daily data or door failures for {selected_month}"))
-            
-    elif scale == 'month' and not selected_month:
-        fig.update_layout(title=dict(text="Outings: Please select a month"))
+            fig.update_layout(title=dict(text=f"Outings: No daily data or door failures for {selected_month}{title_suffix}"))
 
-    elif scale == 'day' and selected_day: 
+    elif scale == 'month' and not selected_month:
+        fig.update_layout(title=dict(text=f"Outings: Please select a month{title_suffix}"))
+
+    elif scale == 'day' and selected_day:
         if not processed_outings_data.empty and 'start_ts' in processed_outings_data.columns:
             try:
                 day_start_ts = pd.to_datetime(selected_day + " 00:00:00")
                 day_end_ts = pd.to_datetime(selected_day + " 23:59:59.999999")
-                
+
                 hourly_durations = pd.Series(0.0, index=range(24))
 
                 relevant_outings = processed_outings_data[
@@ -308,19 +318,19 @@ def create_outings_figure_1(processed_outings_data, aggregated_daily_data, month
                     for _, outing in relevant_outings.iterrows():
                         outing_start = outing['start_ts']
                         outing_end = outing['end_ts']
-                        
+
                         for hour in range(24):
                             hour_slot_start = day_start_ts + pd.Timedelta(hours=hour)
                             hour_slot_end = hour_slot_start + pd.Timedelta(hours=1)
-                            
+
                             # Calculate overlap
                             overlap_start = max(outing_start, hour_slot_start)
                             overlap_end = min(outing_end, hour_slot_end)
-                            
+
                             if overlap_end > overlap_start:
                                 duration_in_hour_seconds = (overlap_end - overlap_start).total_seconds()
                                 hourly_durations[hour] += duration_in_hour_seconds / 3600.0
-                    
+
                     # Cap duration at 1 hour for each slot, as we're showing presence
                     hourly_durations = hourly_durations.clip(upper=1.0)
 
@@ -331,33 +341,37 @@ def create_outings_figure_1(processed_outings_data, aggregated_daily_data, month
                         marker_color=DATA2_COLOR # Green for outing presence
                     ))
                     fig.update_layout(
-                        title=dict(text=f"Vue Horaire : Sorties le {selected_day}", x=TITLE_X, y=TITLE_Y),
+                        title=dict(text=f"Vue Horaire : Sorties le {selected_day}{title_suffix}", x=TITLE_X, y=TITLE_Y),
                         xaxis=dict(title="Heure de la journée", tickmode='array',
                                    tickvals=list(range(24)),
                                    ticktext=[f"{h:02d}:00" for h in range(24)]),
                         yaxis=dict(title="Présence dehors (fraction de l'heure)", range=[0, 1.1]),
                         legend=LEGEND,
-                        yaxis2=dict(showticklabels=False, showgrid=False, zeroline=False, title=None) 
+                        yaxis2=dict(showticklabels=False, showgrid=False, zeroline=False, title=None)
                     )
                 else:
-                    fig.update_layout(title=dict(text=f"Day View: No outings data for {selected_day}"))
+                    fig.update_layout(title=dict(text=f"Day View: No outings data for {selected_day}{title_suffix}"))
             except Exception as e:
                 print(f"Error processing hourly outing view for {selected_day}: {e}")
                 fig.update_layout(title=dict(text=f"Error loading hourly data for {selected_day}"))
         else:
             fig.update_layout(title=dict(text="Day View: Processed outings data not available or empty"))
-            
+
     elif scale == 'day' and not selected_day:
-        fig.update_layout(title=dict(text="Day View: Please select a day (after selecting a month)"))
+        fig.update_layout(title=dict(text=f"Day View: Please select a day (after selecting a month){title_suffix}"))
 
 
     if not fig.data:
-        fig.update_layout(title=dict(text="Aucune donnée à afficher pour la sélection actuelle"))
+        fig.update_layout(title=dict(text=f"Aucune donnée à afficher pour la sélection actuelle{title_suffix}"))
     return fig
 
 def create_outings_figure_2(processed_outings_data, aggregated_daily_data, monthly_data, daily_failure_markers,
-                          scale, selected_month, selected_day):
+                            scale, selected_month, selected_day): # Ajout du paramètre PARTICIPANT_NUMBER
     fig = go.Figure()
+
+    # Ajout du numéro de participant au titre
+    title_suffix = f" (Participant {PARTICIPANT_NUMBER})" if PARTICIPANT_NUMBER else ""
+
     fig.update_layout(
         template='plotly_dark', paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=BACKGROUND_COLOR,
         font=dict(color=TEXT_COLOR), title=dict(font=dict(color=TEXT_COLOR)),
@@ -373,25 +387,25 @@ def create_outings_figure_2(processed_outings_data, aggregated_daily_data, month
         df_monthly = monthly_data
         if not df_monthly.empty:
             fig.add_trace(go.Bar(x=df_monthly['month_label'], y=df_monthly['activity_count_sum'], name="Nb. sorties / mois", marker_color=DATA2_COLOR))
-            
+
             y_max_val = df_monthly['activity_count_sum'].max() if pd.notna(df_monthly['activity_count_sum'].max()) else 5
-            y_range_max = max(5, y_max_val * 1.1) if y_max_val > 0 else 5
+            y_range_max = max(3, y_max_val * 1.1 if y_max_val > 0 else 3)
 
             fig.update_layout(
-                title=dict(text="Activité Sorties : Nombre de sorties (Vue Annuelle)", x=TITLE_X, y=TITLE_Y),
+                title=dict(text=f"Activité Sorties : Nombre de sorties (Vue Annuelle){title_suffix}", x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Mois")),
                 yaxis=dict(title=dict(text="Nb. sorties / mois"), tickfont=dict(color=DATA2_COLOR), range=[0, y_range_max]),
                 legend=LEGEND
             )
         else:
-            fig.update_layout(title=dict(text="Outings: No yearly data available"))
+            fig.update_layout(title=dict(text=f"Outings: No yearly data available{title_suffix}"))
 
     elif scale == 'month' and selected_month:
         df_daily_activity = aggregated_daily_data[aggregated_daily_data['year_month'] == selected_month] if not aggregated_daily_data.empty else pd.DataFrame()
-        
+
         if not df_daily_activity.empty:
             fig.add_trace(go.Bar(x=df_daily_activity['date'], y=df_daily_activity['activity_count_sum'], name="Nb. sorties terminées / jour", marker_color=DATA2_COLOR))
-        
+
         if not df_daily_activity.empty:
             all_relevant_dates = df_daily_activity['date'].tolist()
             unique_display_dates = sorted(list(set(all_relevant_dates))) if all_relevant_dates else []
@@ -400,138 +414,18 @@ def create_outings_figure_2(processed_outings_data, aggregated_daily_data, month
             y_range_max = max(3, y_max * 1.1 if pd.notna(y_max) else 3)
 
             fig.update_layout(
-                title=dict(text=f"Activité Sorties : Nombre de sorties (Vue Journalière) - {selected_month}", x=TITLE_X, y=TITLE_Y),
+                title=dict(text=f"Activité Sorties : Nombre de sorties (Vue Journalière) - {selected_month}{title_suffix}", x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Jour"), tickformat='%d', tickmode='array', tickvals=unique_display_dates, ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
                 yaxis=dict(title=dict(text="Nb. sorties terminées"), range=[0, y_range_max]),
                 legend=LEGEND
             )
         else:
-            fig.update_layout(title=dict(text=f"Outings: No daily data for {selected_month}"))
-            
+            fig.update_layout(title=dict(text=f"Outings: No daily data for {selected_month}{title_suffix}"))
+
     elif scale == 'day' and selected_day:
-        fig.update_layout(title=dict(text=f"Day View: Outing count is not directly applicable for hourly view"))
-    
+        fig.update_layout(title=dict(text=f"Day View: Outing count is not directly applicable for hourly view{title_suffix}"))
+
     if not fig.data:
-        fig.update_layout(title=dict(text="Aucune donnée à afficher pour la sélection actuelle"))
+        fig.update_layout(title=dict(text=f"Aucune donnée à afficher pour la sélection actuelle{title_suffix}"))
     return fig
 
-# --- Standalone App Execution ---
-if __name__ == '__main__':
-    
-    # get_outings_data returns 4 DataFrames
-    processed_outings_df, outings_daily_data, outings_monthly_data, door_failure_markers_data = get_outings_data()
-    
-    available_months = []
-    temp_months_set = set()
-    # Use outings_daily_data (which has 'year_month') to populate month dropdown
-    if not outings_daily_data.empty and 'year_month' in outings_daily_data.columns:
-        temp_months_set.update(outings_daily_data['year_month'].dropna().unique())
-
-    if temp_months_set:
-        available_months = sorted(list(temp_months_set))
-
-    app = Dash(__name__)
-    app.title = APP_TITLE
-    app.layout = html.Div(style={'backgroundColor': BACKGROUND_COLOR, 'color': TEXT_COLOR, 'padding': '20px'}, children=[
-        html.H2(APP_TITLE, style={'textAlign': 'center', 'marginBottom': '30px'}),
-        html.Div([
-            html.Label("Select view scale:", style={'marginRight': '10px'}),
-            dcc.Dropdown( 
-                id='scale-selector-outings',
-                options=[
-                    {'label': 'Year View (Monthly)', 'value': 'year'},
-                    {'label': 'Month View (Daily)', 'value': 'month'},
-                    {'label': 'Day View (Hourly)', 'value': 'day'} 
-                ],
-                value='year',
-                clearable=False,
-                style={'width': '250px', 'display': 'inline-block', 'color': '#333'}
-            ),
-        ], style={'marginBottom': '20px', 'textAlign': 'center'}),
-
-        html.Div(id='month-dropdown-container-outings', children=[
-            html.Label("Select Month:", style={'marginRight': '10px'}),
-            dcc.Dropdown(
-                id='month-dropdown-outings',
-                options=[{'label': m, 'value': m} for m in available_months],
-                value=available_months[0] if len(available_months) > 0 else None,
-                clearable=False,
-                style={'width': '200px', 'display': 'inline-block', 'color': '#333'}
-            )
-        ], style={'display': 'none', 'textAlign': 'center', 'marginBottom': '20px'}),
-
-        html.Div(id='day-dropdown-container-outings', children=[ 
-            html.Label("Select Day:", style={'marginRight': '10px'}),
-            dcc.Dropdown(
-                id='day-dropdown-outings',
-                clearable=False,
-                style={'width': '200px', 'display': 'inline-block', 'color': '#333'}
-            )
-        ], style={'display': 'none', 'textAlign': 'center', 'marginBottom': '20px'}),
-
-        dcc.Graph(id='outings-activity-graph', style={'height': '60vh'})
-    ])
-
-    @app.callback(
-        Output('month-dropdown-container-outings', 'style'),
-        Output('day-dropdown-container-outings', 'style'),
-        Input('scale-selector-outings', 'value')
-    )
-    def toggle_dropdown_visibility_outings(scale):
-        month_style = {'display': 'none', 'textAlign': 'center', 'marginBottom': '20px'}
-        day_style = {'display': 'none', 'textAlign': 'center', 'marginBottom': '20px'}
-        if scale == 'month':
-            month_style['display'] = 'block'
-        elif scale == 'day':
-            month_style['display'] = 'block'
-            day_style['display'] = 'block'
-        return month_style, day_style
-
-    @app.callback(
-        Output('day-dropdown-outings', 'options'),
-        Output('day-dropdown-outings', 'value'),
-        Input('month-dropdown-outings', 'value'),
-        Input('scale-selector-outings', 'value')
-    )
-    def update_day_dropdown_options_outings(selected_month, scale):
-        if scale != 'day' or not selected_month:
-            return [], None
-        options = []
-        value = None
-
-        if not outings_daily_data.empty and 'date_str' in outings_daily_data.columns and 'year_month' in outings_daily_data.columns:
-            days_in_month_df = outings_daily_data[outings_daily_data['year_month'] == selected_month]
-            valid_dates_str = days_in_month_df['date_str'].dropna().unique()
-            
-            available_days_sorted = sorted(list(valid_dates_str))
-            options = []
-            for d_str in available_days_sorted:
-                try:
-                    dt_obj = pd.to_datetime(d_str)
-                    label = dt_obj.strftime('%d/%m')
-                    options.append({'label': label, 'value': d_str})
-                except ValueError:
-                     options.append({'label': d_str, 'value': d_str})
-            
-            if available_days_sorted:
-                value = available_days_sorted[0]
-        return options, value
-
-    @app.callback(
-        Output('outings-activity-graph', 'figure'),
-        Input('scale-selector-outings', 'value'),
-        Input('month-dropdown-outings', 'value'),
-        Input('day-dropdown-outings', 'value') 
-    )
-    def update_graph_standalone_outings(scale, selected_month, selected_day):
-        return create_outings_figure_1(
-            processed_outings_df,       
-            outings_daily_data,        
-            outings_monthly_data,
-            door_failure_markers_data,
-            scale,
-            selected_month,
-            selected_day               
-        )
-
-    app.run(debug=True)

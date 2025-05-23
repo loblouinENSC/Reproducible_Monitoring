@@ -2,8 +2,9 @@ import pandas as pd
 import argparse
 import os
 
-# SCRIPT INDEPENDANT (qui n'est pas executé dans l'app principale),
-# QUI PERMET DE GENERER UN FICHIER CSV QUI CONTIENT TOUT LES JOURS DE PANNES
+# SCRIPT EXECUTE AU MOMENT DU MAKE,
+# QUI PERMET DE GENERER UN FICHIER CSV QUI CONTIENT TOUT LES JOURS DE PANNES 
+# (pas seulement le jour du début de la panne, mais tous les jours compris dans la période de panne)
 # DEPUIS UN FICHIER CSV D'ENTREE QUI CONTIENT DES EVENEMENTS DE PANNES
 
 parser = argparse.ArgumentParser(description="Générer les jours de pannes pour un participant.")
@@ -11,6 +12,8 @@ parser.add_argument("participant_number", type=int, help="Numéro du participant
 
 args = parser.parse_args()
 PARTICIPANT_NUMBER = args.participant_number
+
+print(f"Participant numéro : {PARTICIPANT_NUMBER}")
 
 # Définition de la période du projet
 PROJECT_START_DATE_STR = '01/01/17' # Date de début de projet (JJ/MM/AA)
@@ -184,10 +187,10 @@ if __name__ == '__main__':
     # Liste des paires fichier d'entrée / fichier de sortie
     #Si nouveaux fichiers de règles sont ajoutés, il faut les ajouter ici : 
     files_to_process = [
-        (f'participant_{PARTICIPANT_NUMBER}/rules/rule-door_failure_1week.csv', f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/door_failure_days.csv'),
-        (f'participant_{PARTICIPANT_NUMBER}/rules/rule-bed_failure.csv', f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/bed_failure_days.csv'),
-        (f'participant_{PARTICIPANT_NUMBER}/rules/rule-platform_failure_1day.csv', f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/platform_failure_days.csv'),
-        (f'participant_{PARTICIPANT_NUMBER}/rules/rule-toilet_failure.csv', f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/toilet_failure_days.csv'),
+        (f'work/participant_{PARTICIPANT_NUMBER}/rules/rule-door_failure_1week.csv', f'work/participant_{PARTICIPANT_NUMBER}/sensors_failure_days/door_failure_days.csv'),
+        (f'work/participant_{PARTICIPANT_NUMBER}/rules/rule-bed_failure.csv', f'work/participant_{PARTICIPANT_NUMBER}/sensors_failure_days/bed_failure_days.csv'),
+        (f'work/participant_{PARTICIPANT_NUMBER}/rules/rule-platform_failure_1day.csv', f'work/participant_{PARTICIPANT_NUMBER}/sensors_failure_days/platform_failure_days.csv'),
+        (f'work/participant_{PARTICIPANT_NUMBER}/rules/rule-toilet_failure.csv', f'work/participant_{PARTICIPANT_NUMBER}/sensors_failure_days/toilet_failure_days.csv'),
     ]
 
     try:

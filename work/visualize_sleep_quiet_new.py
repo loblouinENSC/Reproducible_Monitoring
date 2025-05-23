@@ -1,18 +1,14 @@
 import pandas as pd
 import plotly.graph_objs as go
-from dash import Dash, dcc, html, Input, Output
 import numpy as np
 from datetime import datetime as dt_datetime
 import os
 
-# --- Configuration ---
+# --- Configuration (now functions can use PARTICIPANT_NUMBER) ---
+
 PARTICIPANT_NUMBER = 1
 
-SLEEP_LOG_FILE = f'participant_{PARTICIPANT_NUMBER}/rules/rule-sleep_quiet.csv'
-BED_FAILURE_DAYS_FILE = f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/bed_failure_days.csv'
-OUTPUT_FOLDER = f'participant_{PARTICIPANT_NUMBER}/new_processed_csv/new_sleep_csv'
-
-APP_TITLE = "Sleeping Activity Dashboard"
+# TEXT_COLOR, BACKGROUND_COLOR, etc., remain global as they are general styling.
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
 DATA1_COLOR = '#36A0EB' #bleu
@@ -30,19 +26,26 @@ TITLE_Y = 0.92
 
 
 # --- Data Loading and Processing Function ---
-def get_sleep_data():
-    """Loads and preprocesses sleep and bed failure data."""
+def get_sleep_data(participant_number):
+
+    PARTICIPANT_NUMBER = participant_number
+
+    """Loads and preprocesses sleep and bed failure data for a given participant."""
+    sleep_log_file = f'participant_{PARTICIPANT_NUMBER}/rules/rule-sleep_quiet.csv'
+    bed_failure_days_file = f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/bed_failure_days.csv'
+    output_folder = f'participant_{PARTICIPANT_NUMBER}/new_processed_csv/new_sleep_csv'
+
     try:
         #lecture du csv de sommeil
-        sleep_raw_timestamps = pd.read_csv(SLEEP_LOG_FILE, delimiter=';', decimal=",", names=["date", "annotation", "sleep_count", "duration"], parse_dates=["date"], index_col="date")
+        sleep_raw_timestamps = pd.read_csv(sleep_log_file, delimiter=';', decimal=",", names=["date", "annotation", "sleep_count", "duration"], parse_dates=["date"], index_col="date")
         #ajout d'une colonne 'durationHr' pour la durée en heures
         sleep_raw_timestamps['durationHr'] = sleep_raw_timestamps['duration'] / 3600.0
     except FileNotFoundError:
-        print(f"Error: '{SLEEP_LOG_FILE}' not found.")
+        print(f"Error: '{sleep_log_file}' not found.")
         sleep_raw_timestamps = pd.DataFrame(columns=["annotation", "sleep_count", "duration", "durationHr"], index=pd.to_datetime([]))
         sleep_raw_timestamps.index.name = 'date'
     except Exception as e:
-        print(f"Error loading {SLEEP_LOG_FILE}: {e}")
+        print(f"Error loading {sleep_log_file}: {e}")
         sleep_raw_timestamps = pd.DataFrame(columns=["annotation", "sleep_count", "duration", "durationHr"], index=pd.to_datetime([]))
         sleep_raw_timestamps.index.name = 'date'
 
@@ -52,7 +55,7 @@ def get_sleep_data():
 
     try:
         failure_dates_df = pd.read_csv(
-            BED_FAILURE_DAYS_FILE, header=None, names=['date'], parse_dates=[0], comment='#'
+            bed_failure_days_file, header=None, names=['date'], parse_dates=[0], comment='#'
         )
         bed_failure_daily_markers = failure_dates_df[['date']].dropna(subset=['date']).copy()
         bed_failure_daily_markers['date'] = pd.to_datetime(bed_failure_daily_markers['date'], errors='coerce')
@@ -63,11 +66,11 @@ def get_sleep_data():
             temp_bf_monthly['failure_count'] = 1
             bed_failure_source_for_monthly_agg = temp_bf_monthly.set_index('date')
     except FileNotFoundError:
-        print(f"Avertissement : Fichier des jours d'échec du lit '{BED_FAILURE_DAYS_FILE}' non trouvé.")
+        print(f"Avertissement : Fichier des jours d'échec du lit '{bed_failure_days_file}' non trouvé.")
     except pd.errors.EmptyDataError:
-        print(f"Avertissement : Fichier des jours d'échec du lit '{BED_FAILURE_DAYS_FILE}' est vide.")
+        print(f"Avertissement : Fichier des jours d'échec du lit '{bed_failure_days_file}' est vide.")
     except Exception as e:
-        print(f"Erreur lors du chargement du fichier des jours d'échec du lit '{BED_FAILURE_DAYS_FILE}': {e}")
+        print(f"Erreur lors du chargement du fichier des jours d'échec du lit '{bed_failure_days_file}': {e}")
 
     # ------Daily Aggregation (utilise durationHr pour la somme journalière en heures)------
     if not sleep_raw_timestamps.empty and 'durationHr' in sleep_raw_timestamps.columns:
@@ -78,7 +81,7 @@ def get_sleep_data():
     else:
         sleep_daily = pd.DataFrame(columns=['date', 'duration_sum', 'date_str', 'year_month'])
         sleep_daily = sleep_daily.astype({'date': 'datetime64[ns]', 'duration_sum': 'float64',
-                                          'date_str': 'object', 'year_month': 'object'})
+                                             'date_str': 'object', 'year_month': 'object'})
 
     # -----Monthly Aggregation-----
     if not sleep_daily.empty:
@@ -129,22 +132,21 @@ def get_sleep_data():
 
     # --- Create Output Folder and Save CSVs ---
     try:
-        os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-        sleep_raw_timestamps.to_csv(os.path.join(OUTPUT_FOLDER, "processed_sleep_df.csv"), index=False)
-        sleep_daily.to_csv(os.path.join(OUTPUT_FOLDER, "sleep_daily_activity.csv"), index=False)
-        sleep_monthly.to_csv(os.path.join(OUTPUT_FOLDER, "sleep_monthly_activity.csv"), index=False)
-        bed_failure_daily_markers.to_csv(os.path.join(OUTPUT_FOLDER, "bed_sensor_failure_day.csv"), index=False)
-        print("CSV files saved in folder:", OUTPUT_FOLDER)
+        os.makedirs(output_folder, exist_ok=True)
+        sleep_raw_timestamps.to_csv(os.path.join(output_folder, "processed_sleep_df.csv"), index=False)
+        sleep_daily.to_csv(os.path.join(output_folder, "sleep_daily_activity.csv"), index=False)
+        sleep_monthly.to_csv(os.path.join(output_folder, "sleep_monthly_activity.csv"), index=False)
+        bed_failure_daily_markers.to_csv(os.path.join(output_folder, "bed_sensor_failure_day.csv"), index=False)
+        print(f"CSV files saved for participant {PARTICIPANT_NUMBER} in folder: {output_folder}")
     except Exception as e:
-        print(f"Error saving CSVs: {e}")
+        print(f"Error saving CSVs for participant {PARTICIPANT_NUMBER}: {e}")
 
     return sleep_raw_timestamps, sleep_daily, sleep_monthly, bed_failure_daily_markers
 
 
-
 # --- Figure Creation Function ---
 def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_failure_markers,
-                         scale, selected_month, selected_day):
+                        scale, selected_month, selected_day): 
     """Creates the Plotly figure for sleep activity based on inputs."""
     fig = go.Figure()
     fig.update_layout(
@@ -176,7 +178,7 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
                 y2_max_range = min(df_monthly['failure_percentage'].max() * 1.2, 100)
 
             fig.update_layout(
-                title=dict(text="Vue Annuelle : Activité de Sommeil Mensuelle et Échec du Lit", x= TITLE_X, y = TITLE_Y),
+                title=dict(text=f"Participant {PARTICIPANT_NUMBER} - Vue Annuelle : Activité de Sommeil Mensuelle et Échec du Lit", x= TITLE_X, y = TITLE_Y),
                 xaxis=dict(title=dict(text="Mois")),
                 yaxis=dict(title=dict(text="Durée moyenne sommeil (h)"), tickfont=dict(color=DATA1_COLOR)),
                 yaxis2=dict(title=dict(text="Jours échec lit (%)"), overlaying='y', side='right', tickfont=dict(color=DATA2_COLOR), showgrid=False, range=[0, 100]),
@@ -184,7 +186,7 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
                 hovermode='x unified'
             )
         else:
-            fig.update_layout(title=dict(text="Yearly View: No monthly data available"))
+            fig.update_layout(title=dict(text=f"Participant {PARTICIPANT_NUMBER} - Yearly View: No monthly data available"))
 
     elif scale == 'month' and selected_month:
         df_daily_sleep = aggregated_daily_data[aggregated_daily_data['year_month'] == selected_month] if not aggregated_daily_data.empty else pd.DataFrame()
@@ -213,7 +215,7 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
 
         if not df_daily_sleep.empty or not df_daily_failure_markers_filtered.empty:
             fig.update_layout(
-                title=dict(text=f"Vue Journalière (par jour) : {selected_month}", x= TITLE_X, y = TITLE_Y),
+                title=dict(text=f"Participant {PARTICIPANT_NUMBER} - Vue Journalière (par jour) : {selected_month}", x= TITLE_X, y = TITLE_Y),
                 xaxis=dict(title=dict(text="Jour"), tickformat='%d', tickmode='array',
                                 tickvals=unique_display_dates,
                                 ticktext=[d.strftime('%d') for d in unique_display_dates] if unique_display_dates else []),
@@ -223,7 +225,7 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
             )
 
     elif scale == 'month' and not selected_month:
-        fig.update_layout(title=dict(text="Monthly View: Please select a month"))
+        fig.update_layout(title=dict(text=f"Participant {PARTICIPANT_NUMBER} - Monthly View: Please select a month"))
 
     elif scale == 'day' and selected_day: # selected_day est une chaîne 'YYYY-MM-DD'
         if not raw_ts_data.empty and 'duration' in raw_ts_data.columns:
@@ -332,7 +334,7 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
                             awake_added_to_legend = True
 
                 fig.update_layout(
-                    title=dict(text=f"Vue Journalière (Gantt) : Sommeil et Éveil le {selected_day}", x=TITLE_X, y=TITLE_Y),
+                    title=dict(text=f"Participant {PARTICIPANT_NUMBER} - Vue Journalière (Gantt) : Sommeil et Éveil le {selected_day}", x=TITLE_X, y=TITLE_Y),
                     xaxis=dict(
                         title="Heure de la journée",
                         tickmode='array',
@@ -358,131 +360,13 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
                 traceback.print_exc()
                 fig.update_layout(title=dict(text=f"Error loading sleep data for {selected_day}"))
         else:
-            fig.update_layout(title=dict(text="Day View: Raw sleep data (or 'duration' column) is not available"))
+            fig.update_layout(title=dict(text=f"Participant {PARTICIPANT_NUMBER} - Day View: Raw sleep data (or 'duration' column) is not available"))
 
     elif scale == 'day' and not selected_day:
-        fig.update_layout(title=dict(text="Day View: Please select a day (after selecting a month)"))
+        fig.update_layout(title=dict(text=f"Participant {PARTICIPANT_NUMBER} - Day View: Please select a day (after selecting a month)"))
 
     if not fig.data:
-        fig.update_layout(title=dict(text="Aucune donnée à afficher pour la sélection actuelle"))
+        fig.update_layout(title=dict(text=f"Participant {PARTICIPANT_NUMBER} - Aucune donnée à afficher pour la sélection actuelle"))
     return fig
 
-
-# --- Standalone App Execution ---
-if __name__ == '__main__':
-    sleep_raw_ts_data, sleep_daily_data, sleep_monthly_data, sleep_bed_failure_daily_markers = get_sleep_data()
-
-    available_months = []
-    temp_months_set = set()
-    if not sleep_daily_data.empty and 'year_month' in sleep_daily_data.columns:
-        valid_year_months = sleep_daily_data['year_month'].dropna().unique()
-        temp_months_set.update(valid_year_months)
-    if temp_months_set:
-        available_months = sorted(list(temp_months_set))
-
-    app = Dash(__name__)
-    app.title = APP_TITLE
-    app.layout = html.Div(style={'backgroundColor': BACKGROUND_COLOR, 'color': TEXT_COLOR, 'padding': '20px'}, children=[
-        html.H2(APP_TITLE, style={'textAlign': 'center', 'marginBottom': '30px'}),
-        html.Div([
-            html.Label("Select view scale:", style={'marginRight': '10px'}),
-            dcc.Dropdown(
-                id='scale-selector-sleep',
-                options=[
-                    {'label': 'Year View (Monthly)', 'value': 'year'},
-                    {'label': 'Month View (Daily)', 'value': 'month'},
-                    {'label': 'Day View (Hourly)', 'value': 'day'}
-                ],
-                value='year',
-                clearable=False,
-                style={'width': '250px', 'display': 'inline-block', 'color': '#333'}
-            ),
-        ], style={'marginBottom': '20px', 'textAlign': 'center'}),
-
-        html.Div(id='month-dropdown-container-sleep', children=[
-            html.Label("Select Month:", style={'marginRight': '10px'}),
-            dcc.Dropdown(
-                id='month-dropdown-sleep',
-                options=[{'label': m, 'value': m} for m in available_months],
-                value=available_months[0] if len(available_months) > 0 else None,
-                clearable=False,
-                style={'width': '200px', 'display': 'inline-block', 'color': '#333'}
-            )
-        ], style={'display': 'none', 'textAlign': 'center', 'marginBottom': '20px'}),
-
-        html.Div(id='day-dropdown-container-sleep', children=[
-            html.Label("Select Day:", style={'marginRight': '10px'}),
-            dcc.Dropdown(
-                id='day-dropdown-sleep',
-                clearable=False,
-                style={'width': '200px', 'display': 'inline-block', 'color': '#333'}
-            )
-        ], style={'display': 'none', 'textAlign': 'center', 'marginBottom': '20px'}),
-
-        dcc.Graph(id='sleep-activity-graph', style={'height': '60vh'})
-    ])
-
-    @app.callback(
-        Output('month-dropdown-container-sleep', 'style'),
-        Output('day-dropdown-container-sleep', 'style'),
-        Input('scale-selector-sleep', 'value')
-    )
-    def toggle_dropdown_visibility_sleep(scale):
-        month_style = {'display': 'none', 'textAlign': 'center', 'marginBottom': '20px'}
-        day_style = {'display': 'none', 'textAlign': 'center', 'marginBottom': '20px'}
-        if scale == 'month':
-            month_style['display'] = 'block'
-        elif scale == 'day':
-            month_style['display'] = 'block'
-            day_style['display'] = 'block'
-        return month_style, day_style
-
-    @app.callback(
-        Output('day-dropdown-sleep', 'options'),
-        Output('day-dropdown-sleep', 'value'),
-        Input('month-dropdown-sleep', 'value'),
-        Input('scale-selector-sleep', 'value')
-    )
-    def update_day_dropdown_options_sleep(selected_month, scale):
-        if scale != 'day' or not selected_month:
-            return [], None
-
-        options = []
-        value = None
-        if not sleep_daily_data.empty and 'date_str' in sleep_daily_data.columns and 'year_month' in sleep_daily_data.columns:
-            days_in_month_df = sleep_daily_data[sleep_daily_data['year_month'] == selected_month]
-            valid_dates_str = days_in_month_df['date_str'].dropna().unique()
-
-            available_days_sorted = sorted(list(valid_dates_str))
-
-            options = []
-            for d_str in available_days_sorted:
-                try:
-                    dt_obj = pd.to_datetime(d_str)
-                    label = dt_obj.strftime('%d/%m')
-                    options.append({'label': label, 'value': d_str})
-                except ValueError:
-                    options.append({'label': d_str, 'value': d_str})
-
-            if available_days_sorted:
-                value = available_days_sorted[0]
-        return options, value
-
-    @app.callback(
-        Output('sleep-activity-graph', 'figure'),
-        Input('scale-selector-sleep', 'value'),
-        Input('month-dropdown-sleep', 'value'),
-        Input('day-dropdown-sleep', 'value')
-    )
-    def update_graph_standalone(scale, selected_month, selected_day):
-        return create_sleep_figure(
-            sleep_raw_ts_data,
-            sleep_daily_data,
-            sleep_monthly_data,
-            sleep_bed_failure_daily_markers,
-            scale,
-            selected_month,
-            selected_day
-        )
-
-    app.run(debug=True)
+# Removed the if __name__ == '__main__': block as this file will be imported
