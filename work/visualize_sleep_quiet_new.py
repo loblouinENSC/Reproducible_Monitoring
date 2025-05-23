@@ -6,8 +6,12 @@ from datetime import datetime as dt_datetime
 import os
 
 # --- Configuration ---
-SLEEP_LOG_FILE = 'rules/rule-sleep_quiet.csv'
-BED_FAILURE_DAYS_FILE = 'sensors_failure_days/bed_failure_days.csv'
+PARTICIPANT_NUMBER = 1
+
+SLEEP_LOG_FILE = f'participant_{PARTICIPANT_NUMBER}/rules/rule-sleep_quiet.csv'
+BED_FAILURE_DAYS_FILE = f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/bed_failure_days.csv'
+OUTPUT_FOLDER = f'participant_{PARTICIPANT_NUMBER}/new_processed_csv/new_sleep_csv'
+
 APP_TITLE = "Sleeping Activity Dashboard"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
@@ -17,7 +21,6 @@ DATA3_COLOR = '#36EB7B' #vert
 DATAMONTH_COLOR = '#36A0EB'
 SLEEP_HOURLY_COLOR = DATA1_COLOR # Pour 'Dort'
 AWAKE_HOURLY_COLOR = DATA3_COLOR # Pour 'Éveil'
-OUTPUT_FOLDER = "new_processed_csv/new_sleep_csv"
 
 # --- Graph Configuration ---
 LEGEND = dict(orientation="h",yanchor="bottom",y=1.1,xanchor="center",x=0.5)
@@ -176,7 +179,7 @@ def create_sleep_figure(raw_ts_data, aggregated_daily_data, monthly_data, daily_
                 title=dict(text="Vue Annuelle : Activité de Sommeil Mensuelle et Échec du Lit", x= TITLE_X, y = TITLE_Y),
                 xaxis=dict(title=dict(text="Mois")),
                 yaxis=dict(title=dict(text="Durée moyenne sommeil (h)"), tickfont=dict(color=DATA1_COLOR)),
-                yaxis2=dict(title=dict(text="Jours échec lit (%)"), overlaying='y', side='right', tickfont=dict(color=DATA2_COLOR), showgrid=False, range=[0, y2_max_range]),
+                yaxis2=dict(title=dict(text="Jours échec lit (%)"), overlaying='y', side='right', tickfont=dict(color=DATA2_COLOR), showgrid=False, range=[0, 100]),
                 legend=LEGEND,
                 hovermode='x unified'
             )

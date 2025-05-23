@@ -6,8 +6,14 @@ from datetime import datetime as dt_datetime
 import os
 
 # --- Configuration ---
-TOILET_LOG_FILE = 'rules/rule-toilet.csv'
-TOILET_FAILURE_DAYS_FILE = 'sensors_failure_days/toilet_failure_days.csv'
+PARTICIPANT_NUMBER = 1
+
+
+
+TOILET_LOG_FILE = f'participant_{PARTICIPANT_NUMBER}/rules/rule-toilet.csv'
+TOILET_FAILURE_DAYS_FILE = f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/toilet_failure_days.csv'
+OUTPUT_FOLDER = f'participant_{PARTICIPANT_NUMBER}/new_processed_csv/new_toilet_csv'
+
 APP_TITLE = "Toilet Activity Viewer"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
@@ -17,7 +23,7 @@ DATA3_COLOR = '#EB9636' # Orange
 FAILURE_MARKER_COLOR = '#F14864' # Rouge
 DATAMONTH_COLOR = DATA1_COLOR
 DATAMONTH2_COLOR = DATA2_COLOR
-OUTPUT_FOLDER = "new_processed_csv/new_toilet_csv"
+
 
 
 # --- Graph Configuration ---
@@ -205,8 +211,8 @@ def create_toilet_figure_1(raw_ts_data, aggregated_daily_data, monthly_data, dai
                 title=dict(text="Durée Moyenne et Échecs Capteur - Vue Annuelle", x=TITLE_X, y=TITLE_Y),
                 xaxis=dict(title=dict(text="Mois")),
                 yaxis=dict(title=dict(text="Durée moyenne (min)"), tickfont=dict(color=DATA1_COLOR)),
-                yaxis2=dict(title=dict(text="Jours échec capteur"), tickfont=dict(color=FAILURE_MARKER_COLOR), 
-                           overlaying='y', side='right', range=[0, y2_max_val], showgrid=False),
+                yaxis2=dict(title=dict(text="Jours échec capteur (%)"), tickfont=dict(color=FAILURE_MARKER_COLOR), 
+                           overlaying='y', side='right', range=[0, 100], showgrid=False),
                 legend=LEGEND,
                 barmode='group',
                 bargap=0.15,

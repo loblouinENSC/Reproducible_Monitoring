@@ -5,16 +5,18 @@ import numpy as np
 from datetime import datetime as dt_datetime 
 import os
 
-# --- Configuration ---
-OUTINGS_LOG_FILE = 'rules/rule-outing.csv'
-DOOR_FAILURE_DAYS_FILE = 'sensors_failure_days/door_failure_days.csv'
+# --- Configuration --- remplacer le 1 par le numéro de participant (a mettre en paramètre)
+PARTICIPANT_NUMBER = 1
+
+OUTINGS_LOG_FILE = f'participant_{PARTICIPANT_NUMBER}/rules/rule-outing.csv'
+DOOR_FAILURE_DAYS_FILE = f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/door_failure_days.csv'
+OUTPUT_FOLDER = f'participant_{PARTICIPANT_NUMBER}/new_processed_csv/new_outing_csv'
 APP_TITLE = "Outings Activity Viewer"
 TEXT_COLOR = 'white'
 BACKGROUND_COLOR = '#111111'
 DATA1_COLOR = '#36A0EB' #bleu 
 DATA2_COLOR = '#36EB7B' #vert 
 DATA3_COLOR = '#F14864' #rouge 
-OUTPUT_FOLDER = "new_processed_csv/new_outing_csv"
 
 #--- Graph Configuration ---
 LEGEND = dict(orientation="h",yanchor="bottom",y=1.1,xanchor="center",x=0.5)

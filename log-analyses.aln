@@ -1,6 +1,8 @@
 # log analyses
 # allen -q '/^EMeter_/>=20'
 
+# --- Règles de panne, sommeil, sorties ---
+
 def sensor_failure[T](s) =
   s >= T | ~s >= T
 
@@ -22,8 +24,25 @@ def sleep_segment_ext(no_presence, night) =
     ((until(no_presence & night, "MotionD_B") | since(no_presence & night, "MotionD_B"))
      >= 30min) <= 10hr
 
+# --- Détection des repas ---
+
+def breakfast[Ts, Te] =
+  let x = slot_2017[Ts, Te] in
+  occ("ContactS_Cupboard", x) & occ(up("EMeter_Coffeemaker"), x)
+
+
+def lunch[Ts, Te, T] =
+  occ(recent[T](up("ContactS_Fridge")) & "EMeter_Coffeemaker",
+      slot_2017[Ts, Te])
+
+def dinner[Ts, Te] =
+  let x = slot_2017[Ts, Te] in
+  occ(up("ContactS_Fridge"), x) & occ(up("EMeter_L"), x)
+
+# --- Signaux de base ---
+
 let any_emeter_up =
-  any_up("EMeter_Cofeemaker", "EMeter_L" )
+  any_up("EMeter_Cofeemaker", "EMeter_L")
 in let any_contact_sw =
   any_sw("ContactS_Cupboard", "ContactS_E", "ContactS_Fridge")
 in let any_motion_up_but_bed =
@@ -41,54 +60,38 @@ in let any_presence =
 in let no_presence =
   ~any_presence
 in let outing_period_10min = outing_period[10min](no_activity)
-in
-let night = slot_2017[22hr, 8hr] | slot_2018[22hr, 8hr]
-in
-let sleep_segment = sleep_segment(any_motion_up_but_bed) in
-let sleep =
+in let night = slot_2017[22hr, 8hr] | slot_2018[22hr, 8hr]
+in let sleep_segment = sleep_segment(any_motion_up_but_bed)
+in let sleep =
   (
    ex(night, sleep_segment | during(~sleep_segment <= 15min, night)))
-in
-let quiet_night_segment = ((ex(night, no_activity) & ~sleep_segment) >= 30min) <=10hr 
-in 
-let quiet_sleep_segment = sleep_segment | quiet_night_segment
-in
-let sleep_quiet =
+in let quiet_night_segment =
+  ((ex(night, no_activity) & ~sleep_segment) >= 30min) <=10hr
+in let quiet_sleep_segment =
+  sleep_segment | quiet_night_segment
+in let sleep_quiet =
   (
    ex(night, quiet_sleep_segment | during(~quiet_sleep_segment <= 15min, night)))
 in
 
+# --- Sorties (contexts) ---
+
 door_failure_1week:
   let nodoor = sensor_failure[168hr]("ContactS_E") in
   nodoor;
-  #holds(~outing_period[168hr](no_activity), nodoor);
-
-#door_failure:
-#  "ContactS_E.CommFailure";
-
-#failure_M_E_1day:
-#  sensor_failure[24hr]("MotionD_E")
 
 platform_failure_1day:
   platform_failure_1day(no_activity);
-
-
-#outing_1day:
-#  outing_period[24hr]
 
 outing:
   outing_period_10min;
 
 toilet:
   "MotionD_T" <= 20min | holds(~any_motion_up, ~"MotionD_T" <= 3min);
-  
 
 toilet_failure:
   let nout = ~outing_period_10min in
   (~"MotionD_T" & nout) >= 24hr | ("MotionD_T" & nout) >= 24hr;
-
-#toilet_failure:
-  #”MotionD_T.CommFailure";
 
 bed_failure:
   let nout = ~outing_period_10min in
@@ -97,10 +100,19 @@ bed_failure:
 sleep:
   sleep;
 
-
 quiet_night_segment:
- quiet_night_segment;
+  quiet_night_segment;
 
 sleep_quiet:
-  sleep_quiet
+  sleep_quiet;
 
+# --- Repas exportés en horaires ---
+
+breakfast_7_9:
+  breakfast[5hr, 10hr];
+
+lunch_12_14:
+  lunch[11hr, 15hr, 25min];
+
+dinner_18_21:
+  dinner[18hr, 23hr]

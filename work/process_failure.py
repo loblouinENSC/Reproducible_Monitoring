@@ -1,33 +1,42 @@
 import pandas as pd
+import argparse
+import os
 
-# SCRIPT INDEPENDANT (qui n'est pas executé dans l'app principale), 
+# SCRIPT INDEPENDANT (qui n'est pas executé dans l'app principale),
 # QUI PERMET DE GENERER UN FICHIER CSV QUI CONTIENT TOUT LES JOURS DE PANNES
 # DEPUIS UN FICHIER CSV D'ENTREE QUI CONTIENT DES EVENEMENTS DE PANNES
 
-INPUT_CSV_FILE = 'rule-door_failure_1week.csv'  # Nom de votre fichier d'entrée
-OUTPUT_CSV_FILE = 'door_failure_days.csv'      # Nom du fichier de sortie qui sera généré
+parser = argparse.ArgumentParser(description="Générer les jours de pannes pour un participant.")
+parser.add_argument("participant_number", type=int, help="Numéro du participant (ex: 1)")
 
-# Définition de la date de fin de projet
+args = parser.parse_args()
+PARTICIPANT_NUMBER = args.participant_number
+
+# Définition de la période du projet
+PROJECT_START_DATE_STR = '01/01/17' # Date de début de projet (JJ/MM/AA)
 PROJECT_END_DATE_STR = '14/12/17' # Date de fin de projet (JJ/MM/AA)
 
-def generate_failure_days():
+def generate_failure_days_for_file(input_csv_file, output_csv_file, project_start_date, project_end_date):
     """
-    Lit les événements de panne de capteur à partir d'un fichier CSV,
+    Lit les événements de panne de capteur à partir d'un fichier CSV donné,
     identifie les périodes de panne, et génère un nouveau fichier CSV
-    listant tous les jours uniques durant lesquels le capteur était en panne.
+    listant tous les jours uniques durant lesquels le capteur était en panne,
+    uniquement à partir de la date de début de projet.
     Si la dernière ligne du CSV d'entrée indique une panne active (status_code 1),
     la panne est considérée active jusqu'à la PROJECT_END_DATE.
     """
-    try:
-        project_end_date = pd.to_datetime(PROJECT_END_DATE_STR, format='%d/%m/%y').normalize()
-    except ValueError as e:
-        print(f"Erreur : La date de fin de projet '{PROJECT_END_DATE_STR}' est invalide. Veuillez utiliser le format JJ/MM/AA. Détails: {e}")
-        return
+    print(f"\n--- Traitement de {input_csv_file} ---")
+
+    # Assure que le répertoire de sortie existe
+    output_dir = os.path.dirname(output_csv_file)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        print(f"Répertoire de sortie créé : {output_dir}")
 
     try:
         # Lire le fichier CSV d'entrée.
         df = pd.read_csv(
-            INPUT_CSV_FILE,
+            input_csv_file,
             delimiter=';',
             header=None,
             names=['timestamp', 'annotation', 'status_code', 'value'],
@@ -35,19 +44,27 @@ def generate_failure_days():
             dtype={'annotation': str, 'status_code': int, 'value': str}
         )
     except FileNotFoundError:
-        print(f"Erreur : Le fichier d'entrée '{INPUT_CSV_FILE}' n'a pas été trouvé.")
+        print(f"Erreur : Le fichier d'entrée '{input_csv_file}' n'a pas été trouvé. Ignoré.")
         return
     except Exception as e:
-        print(f"Erreur lors de la lecture du fichier CSV '{INPUT_CSV_FILE}': {e}")
+        print(f"Erreur lors de la lecture du fichier CSV '{input_csv_file}': {e}. Ignoré.")
         return
 
     if df.empty:
-        print(f"Le fichier d'entrée '{INPUT_CSV_FILE}' est vide. Aucun jour de panne à traiter.")
-        pd.DataFrame(columns=['date']).to_csv(OUTPUT_CSV_FILE, index=False)
-        print(f"Le fichier '{OUTPUT_CSV_FILE}' a été généré (vide).")
+        print(f"Le fichier d'entrée '{input_csv_file}' est vide. Aucun jour de panne à traiter.")
+        pd.DataFrame(columns=['date']).to_csv(output_csv_file, index=False)
+        print(f"Le fichier '{output_csv_file}' a été généré (vide).")
         return
 
+    # Filtrer les événements pour ne garder que ceux qui sont à partir de la date de début de projet
+    df = df[df['timestamp'].notna() & (df['timestamp'] >= project_start_date)].copy()
     df = df.sort_values(by='timestamp').reset_index(drop=True)
+
+    if df.empty:
+        print(f"Après filtrage par la date de début de projet ({project_start_date.strftime('%d/%m/%y')}), le fichier '{input_csv_file}' est vide. Aucun jour de panne à traiter.")
+        pd.DataFrame(columns=['date']).to_csv(output_csv_file, index=False)
+        print(f"Le fichier '{output_csv_file}' a été généré (vide).")
+        return
 
     all_failure_days = set()
     current_failure_start_time = None
@@ -57,46 +74,50 @@ def generate_failure_days():
         status_code = row['status_code']
 
         if pd.isna(event_time):
-            print(f"Avertissement : Timestamp manquant à la ligne {index + 2} (après tri). Ligne ignorée.")
+            print(f"Avertissement : Timestamp manquant à la ligne {index + 2} (après tri et filtrage) dans '{input_csv_file}'. Ligne ignorée.")
             continue
         
-        # Vérifier si status_code est NaN (peut arriver si la colonne n'est pas toujours un int valide)
         if pd.isna(status_code):
-            print(f"Avertissement : status_code manquant ou invalide à la ligne {index + 2} (timestamp: {event_time}). Ligne ignorée.")
+            print(f"Avertissement : status_code manquant ou invalide à la ligne {index + 2} (timestamp: {event_time}) dans '{input_csv_file}'. Ligne ignorée.")
             continue
 
         try:
-            # S'assurer que status_code est bien un entier pour la comparaison
             status_code = int(status_code)
         except ValueError:
-            print(f"Avertissement : status_code '{status_code}' non entier à la ligne {index + 2} (timestamp: {event_time}). Ligne ignorée.")
+            print(f"Avertissement : status_code '{status_code}' non entier à la ligne {index + 2} (timestamp: {event_time}) dans '{input_csv_file}'. Ligne ignorée.")
             continue
 
-
         if status_code == 1:  # Début de la panne
+            potential_failure_start = max(event_time, project_start_date)
             if current_failure_start_time is not None:
                 print(f"Avertissement : Nouvelle période de panne commencée à {event_time.strftime('%Y-%m-%d %H:%M:%S')} "
                       f"alors qu'une panne précédente (démarrée à {current_failure_start_time.strftime('%Y-%m-%d %H:%M:%S')}) "
                       "n'était pas explicitement terminée. Le nouveau début est pris en compte.")
-            current_failure_start_time = event_time
+            current_failure_start_time = potential_failure_start
         
         elif status_code == 0:  # Fin de la panne
             if current_failure_start_time is not None:
                 failure_end_time = event_time
                 
-                if failure_end_time < current_failure_start_time:
+                effective_start_time = max(current_failure_start_time, project_start_date)
+
+                if failure_end_time < effective_start_time:
                     print(f"Avertissement : Fin de panne à {failure_end_time.strftime('%Y-%m-%d %H:%M:%S')} "
-                          f"est antérieure au début de panne à {current_failure_start_time.strftime('%Y-%m-%d %H:%M:%S')}. "
+                          f"est antérieure au début de panne ajusté à {effective_start_time.strftime('%Y-%m-%d %H:%M:%S')}. "
                           "Cette période de panne est ignorée.")
                     current_failure_start_time = None
                     continue
 
-                start_date_norm = current_failure_start_time.normalize()
+                start_date_norm = effective_start_time.normalize()
                 end_date_norm = failure_end_time.normalize()
                 
-                days_in_period = pd.date_range(start=start_date_norm, end=end_date_norm, freq='D')
-                for day in days_in_period:
-                    all_failure_days.add(day)
+                end_date_norm = min(end_date_norm, project_end_date)
+
+                if start_date_norm <= end_date_norm:
+                    days_in_period = pd.date_range(start=start_date_norm, end=end_date_norm, freq='D')
+                    for day in days_in_period:
+                        if project_start_date.normalize() <= day <= project_end_date.normalize():
+                            all_failure_days.add(day)
                 
                 current_failure_start_time = None
             else:
@@ -109,70 +130,76 @@ def generate_failure_days():
               "est considérée comme active à la fin du traitement des événements du fichier source.")
 
         end_date_for_open_failure = None
-        # df ne peut pas être vide ici car current_failure_start_time est issu d'une ligne de df
-        last_row = df.iloc[-1] 
+        last_row_after_filter = df.iloc[-1] 
 
-        # Si la dernière ligne du fichier CSV (après tri) a un status_code de 1
-        if last_row['status_code'] == 1 and current_failure_start_time == last_row['timestamp']:
-            # La logique de la boucle principale assure que si la dernière ligne est un '1',
-            # current_failure_start_time sera le timestamp de cette ligne.
-            print(f"La dernière ligne du fichier CSV (à {last_row['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}, status_code=1) "
+        if last_row_after_filter['status_code'] == 1 and current_failure_start_time.normalize() == max(last_row_after_filter['timestamp'], project_start_date).normalize():
+            print(f"La dernière ligne du fichier CSV (à {last_row_after_filter['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}, status_code=1) "
                   "indique que le capteur n'est jamais remis en route.")
             print(f"La panne est étendue jusqu'à la date de fin de projet : {project_end_date.strftime('%Y-%m-%d')}.")
             end_date_for_open_failure = project_end_date
         else:
-            # La panne est ouverte, mais la dernière ligne du fichier n'était pas un '1' ayant initié cette panne active.
-            # (ex: dernier '1' suivi de lignes invalides, ou 'current_failure_start_time' vient d'un '1' plus ancien
-            # et la dernière ligne est un '0' mal placé ou invalide, ou un '1' dont le timestamp ne correspond pas - cas peu probable).
-            # On utilise la date du dernier événement valide dans le fichier.
-            print(f"La panne ouverte (commencée à {current_failure_start_time.strftime('%Y-%m-%d %H:%M:%S')}) "
-                  "n'est pas terminée. La condition spéciale (dernière ligne avec status_code=1) n'est pas remplie "
-                  "pour étendre jusqu'à la date de fin de projet.")
+            last_valid_timestamp_in_project_range = df['timestamp'].max()
             
-            last_valid_timestamp_in_file = df['timestamp'].max() # Timestamp du dernier événement valide
-            
-            if pd.notna(last_valid_timestamp_in_file) and last_valid_timestamp_in_file >= current_failure_start_time:
-                print(f"Elle est étendue jusqu'au jour du dernier événement horodaté du fichier: "
-                      f"{last_valid_timestamp_in_file.normalize().strftime('%Y-%m-%d')}.")
-                end_date_for_open_failure = last_valid_timestamp_in_file.normalize()
+            if pd.notna(last_valid_timestamp_in_project_range) and last_valid_timestamp_in_project_range >= current_failure_start_time:
+                print(f"Elle est étendue jusqu'au jour du dernier événement horodaté du fichier (dans la plage du projet): "
+                      f"{last_valid_timestamp_in_project_range.normalize().strftime('%Y-%m-%d')}.")
+                end_date_for_open_failure = last_valid_timestamp_in_project_range.normalize()
             else:
-                # Fallback si last_valid_timestamp_in_file est invalide ou antérieur
-                print(f"Avertissement : Le dernier événement horodaté valide ({last_valid_timestamp_in_file}) "
+                print(f"Avertissement : Le dernier événement horodaté valide ({last_valid_timestamp_in_project_range}) "
                       f"n'est pas utilisable ou est antérieur à la panne ouverte ({current_failure_start_time}). "
-                      "La panne sera étendue uniquement jusqu'à son jour de début.")
+                      "La panne sera étendue uniquement jusqu'à son jour de début ajusté.")
                 end_date_for_open_failure = current_failure_start_time.normalize()
         
-        # Ajouter les jours de panne pour la période ouverte, si une date de fin a été déterminée
         if end_date_for_open_failure is not None:
-            if end_date_for_open_failure >= current_failure_start_time.normalize():
-                start_date_norm = current_failure_start_time.normalize()
-                # end_date_for_open_failure est déjà normalisée (soit par .normalize() soit project_end_date)
-                
-                days_in_open_period = pd.date_range(start=start_date_norm, end=end_date_for_open_failure, freq='D')
+            start_date_for_open_period = max(current_failure_start_time.normalize(), project_start_date.normalize())
+
+            if end_date_for_open_failure >= start_date_for_open_period:
+                days_in_open_period = pd.date_range(start=start_date_for_open_period, end=end_date_for_open_failure, freq='D')
                 for day in days_in_open_period:
-                    all_failure_days.add(day)
+                    if project_start_date.normalize() <= day <= project_end_date.normalize():
+                        all_failure_days.add(day)
                 print(f"Les jours de panne pour cette période ouverte ont été ajoutés "
-                      f"de {start_date_norm.strftime('%Y-%m-%d')} jusqu'au {end_date_for_open_failure.strftime('%Y-%m-%d')}.")
+                      f"de {start_date_for_open_period.strftime('%Y-%m-%d')} jusqu'au {end_date_for_open_failure.strftime('%Y-%m-%d')}.")
             else:
-                # Cas où project_end_date ou last_valid_timestamp_in_file est antérieur à current_failure_start_time
                 print(f"Avertissement : La date de fin calculée pour la panne ouverte ({end_date_for_open_failure.strftime('%Y-%m-%d')}) "
-                      f"est antérieure à sa date de début ({current_failure_start_time.normalize().strftime('%Y-%m-%d')}). "
-                      "Seul le jour de début ({current_failure_start_time.normalize().strftime('%Y-%m-%d')}) sera ajouté.")
-                all_failure_days.add(current_failure_start_time.normalize())
+                      f"est antérieure à sa date de début ajustée ({start_date_for_open_period.strftime('%Y-%m-%d')}). "
+                      "Aucun jour supplémentaire ajouté pour cette panne ouverte.")
 
     if not all_failure_days:
-        print("Aucun jour de panne n'a été identifié.")
+        print(f"Aucun jour de panne n'a été identifié dans la période du projet pour '{input_csv_file}'.")
         failure_output_df = pd.DataFrame(columns=['date'])
     else:
-        failure_dates_list_sorted = sorted(list(all_failure_days))
+        filtered_failure_days = {d for d in all_failure_days if project_start_date.normalize() <= d <= project_end_date.normalize()}
+        failure_dates_list_sorted = sorted(list(filtered_failure_days))
         failure_output_df = pd.DataFrame(failure_dates_list_sorted, columns=['date'])
         failure_output_df['date'] = failure_output_df['date'].dt.strftime('%Y-%m-%d')
 
     try:
-        failure_output_df.to_csv(OUTPUT_CSV_FILE, index=False)
-        print(f"Le fichier '{OUTPUT_CSV_FILE}' a été généré avec succès, contenant {len(failure_output_df)} jours de panne.")
+        failure_output_df.to_csv(output_csv_file, index=False)
+        print(f"Le fichier '{output_csv_file}' a été généré avec succès, contenant {len(failure_output_df)} jours de panne.")
     except Exception as e:
-        print(f"Erreur lors de l'écriture du fichier CSV '{OUTPUT_CSV_FILE}': {e}")
+        print(f"Erreur lors de l'écriture du fichier CSV '{output_csv_file}': {e}")
 
 if __name__ == '__main__':
-    generate_failure_days()
+    # Liste des paires fichier d'entrée / fichier de sortie
+    #Si nouveaux fichiers de règles sont ajoutés, il faut les ajouter ici : 
+    files_to_process = [
+        (f'participant_{PARTICIPANT_NUMBER}/rules/rule-door_failure_1week.csv', f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/door_failure_days.csv'),
+        (f'participant_{PARTICIPANT_NUMBER}/rules/rule-bed_failure.csv', f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/bed_failure_days.csv'),
+        (f'participant_{PARTICIPANT_NUMBER}/rules/rule-platform_failure_1day.csv', f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/platform_failure_days.csv'),
+        (f'participant_{PARTICIPANT_NUMBER}/rules/rule-toilet_failure.csv', f'participant_{PARTICIPANT_NUMBER}/sensors_failure_days/toilet_failure_days.csv'),
+    ]
+
+    try:
+        project_start_date = pd.to_datetime(PROJECT_START_DATE_STR, format='%d/%m/%y').normalize()
+        project_end_date = pd.to_datetime(PROJECT_END_DATE_STR, format='%d/%m/%y').normalize()
+    except ValueError as e:
+        print(f"Erreur fatale : Une des dates de projet est invalide. Veuillez utiliser le format JJ/MM/AA. Détails: {e}")
+        exit(1) # Quitte le script si les dates de projet sont invalides
+
+    if project_start_date > project_end_date:
+        print("Erreur fatale : La date de début de projet ne peut pas être postérieure à la date de fin de projet.")
+        exit(1) # Quitte le script si les dates de projet sont invalides
+
+    for input_file, output_file in files_to_process:
+        generate_failure_days_for_file(input_file, output_file, project_start_date, project_end_date)
